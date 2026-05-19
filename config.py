@@ -28,8 +28,6 @@ class Config:
         self.google_sheet_id: str = os.getenv("GOOGLE_SHEET_ID", "")
         self.drive_folder_id: str = os.getenv("DRIVE_FOLDER_ID", "")
         self.resume_path: str = os.getenv("RESUME_PATH", "")
-        self.ngrok_auth_token: str = os.getenv("NGROK_AUTH_TOKEN", "")
-        self.ngrok_domain: str = os.getenv("NGROK_DOMAIN", "")
         self.log_level: str = os.getenv("LOG_LEVEL", "INFO")
         self.calendar_ids: list[str] = [
             c.strip() for c in os.getenv("CALENDAR_IDS", "primary").split(",") if c.strip()

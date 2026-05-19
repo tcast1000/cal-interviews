@@ -149,7 +149,6 @@ cal-interviews/
 ├── pipeline_tracker.py      # Company-level pipeline state
 ├── post_interview.py        # Thank-you and follow-up email drafts
 ├── state_manager.py         # Persistent state (processed events, pipelines)
-├── webhook_server.py        # FastAPI webhook server (optional)
 ├── models.py                # Data models
 ├── utils.py                 # Shared utilities
 ├── requirements.txt

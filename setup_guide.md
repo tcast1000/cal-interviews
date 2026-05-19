@@ -36,7 +36,7 @@ Click each link, then click **Enable**.
    - **Developer contact:** your email
 4. Click **Save and Continue**
 5. On the Scopes page, click **Add or Remove Scopes** and add:
-   - `https://www.googleapis.com/auth/calendar`
+   - `https://www.googleapis.com/auth/calendar.readonly`
    - `https://www.googleapis.com/auth/gmail.readonly`
    - `https://www.googleapis.com/auth/gmail.compose`
    - `https://www.googleapis.com/auth/spreadsheets`
