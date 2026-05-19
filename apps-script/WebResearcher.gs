@@ -2,10 +2,13 @@ function researchInterview(event) {
   var config = getConfig();
   var results = {
     companyInfo: [],
+    productsAndServices: [],
+    competitors: [],
     companyNews: [],
     roleInfo: [],
     interviewerInfo: {},
-    glassdoorInfo: []
+    glassdoorInfo: [],
+    compensationInfo: []
   };
 
   var company = event.companyName || 'Unknown Company';
@@ -30,6 +33,12 @@ function researchInterview(event) {
     console.log('  Searching company overview...');
     results.companyInfo = searchTavily_('"' + company + '" company overview about', config.tavilyApiKey, 5);
 
+    console.log('  Searching products and services...');
+    results.productsAndServices = searchTavily_('"' + company + '" products services platform offerings', config.tavilyApiKey, 3);
+
+    console.log('  Searching competitors...');
+    results.competitors = searchTavily_('"' + company + '" competitors alternatives market', config.tavilyApiKey, 3);
+
     console.log('  Searching recent news...');
     results.companyNews = searchTavily_('"' + company + '" recent news 2026', config.tavilyApiKey, 3);
 
@@ -40,6 +49,15 @@ function researchInterview(event) {
   if (role && company !== 'Unknown Company') {
     console.log('  Searching role details...');
     results.roleInfo = searchTavily_('"' + role + '" "' + company + '" job description responsibilities', config.tavilyApiKey, 5);
+
+    console.log('  Searching compensation data...');
+    results.compensationInfo = searchTavily_('"' + company + '" "' + role + '" salary compensation levels.fyi glassdoor', config.tavilyApiKey, 3);
+    if (results.compensationInfo.length === 0) {
+      results.compensationInfo = searchTavily_('"' + role + '" salary range compensation 2026', config.tavilyApiKey, 3);
+    }
+  } else if (company !== 'Unknown Company') {
+    console.log('  Searching general compensation data...');
+    results.compensationInfo = searchTavily_('"' + company + '" salary compensation levels.fyi glassdoor', config.tavilyApiKey, 3);
   }
 
   var interviewers = event.interviewers || [];
@@ -52,8 +70,10 @@ function researchInterview(event) {
     }
   }
 
-  var total = results.companyInfo.length + results.companyNews.length +
-    results.roleInfo.length + results.glassdoorInfo.length;
+  var total = results.companyInfo.length + results.productsAndServices.length +
+    results.competitors.length + results.companyNews.length +
+    results.roleInfo.length + results.glassdoorInfo.length +
+    results.compensationInfo.length;
   for (var name in results.interviewerInfo) {
     total += results.interviewerInfo[name].length;
   }

@@ -79,6 +79,14 @@ def research_interview(event: InterviewEvent, config: Config) -> ResearchResults
         results.company_info = _search(f'"{company}" company overview about', config)
         time.sleep(SEARCH_DELAY)
 
+        logger.info("  Searching products and services...")
+        results.products_and_services = _search(f'"{company}" products services platform offerings', config, max_results=3)
+        time.sleep(SEARCH_DELAY)
+
+        logger.info("  Searching competitors...")
+        results.competitors = _search(f'"{company}" competitors alternatives market', config, max_results=3)
+        time.sleep(SEARCH_DELAY)
+
         logger.info("  Searching recent news...")
         results.company_news = _search(f'"{company}" recent news 2026', config, max_results=3)
         time.sleep(SEARCH_DELAY)
@@ -92,6 +100,22 @@ def research_interview(event: InterviewEvent, config: Config) -> ResearchResults
         results.role_info = _search(f'"{role}" "{company}" job description responsibilities', config)
         time.sleep(SEARCH_DELAY)
 
+        logger.info("  Searching compensation data...")
+        results.compensation_info = _search(
+            f'"{company}" "{role}" salary compensation levels.fyi glassdoor', config, max_results=3
+        )
+        if not results.compensation_info:
+            results.compensation_info = _search(
+                f'"{role}" salary range compensation 2026', config, max_results=3
+            )
+        time.sleep(SEARCH_DELAY)
+    elif company != "Unknown Company":
+        logger.info("  Searching general compensation data...")
+        results.compensation_info = _search(
+            f'"{company}" salary compensation levels.fyi glassdoor', config, max_results=3
+        )
+        time.sleep(SEARCH_DELAY)
+
     for interviewer in event.interviewers[:3]:
         if interviewer.name:
             logger.info("  Searching interviewer: %s", interviewer.name)
@@ -102,8 +126,10 @@ def research_interview(event: InterviewEvent, config: Config) -> ResearchResults
             time.sleep(SEARCH_DELAY)
 
     total = (
-        len(results.company_info) + len(results.company_news) +
+        len(results.company_info) + len(results.products_and_services) +
+        len(results.competitors) + len(results.company_news) +
         len(results.role_info) + len(results.glassdoor_info) +
+        len(results.compensation_info) +
         sum(len(v) for v in results.interviewer_info.values())
     )
     logger.info("Research complete: %d total results gathered", total)

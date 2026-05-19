@@ -51,6 +51,7 @@ class InterviewEvent:
     interview_type: Optional[str] = None
     interviewers: list[InterviewerDetail] = field(default_factory=list)
     preparation_instructions: Optional[str] = None
+    updated: Optional[str] = None
 
     @property
     def non_personal_domains(self) -> list[str]:
@@ -74,10 +75,13 @@ class SearchResult:
 @dataclass
 class ResearchResults:
     company_info: list[SearchResult] = field(default_factory=list)
+    products_and_services: list[SearchResult] = field(default_factory=list)
+    competitors: list[SearchResult] = field(default_factory=list)
     company_news: list[SearchResult] = field(default_factory=list)
     role_info: list[SearchResult] = field(default_factory=list)
     interviewer_info: dict[str, list[SearchResult]] = field(default_factory=dict)
     glassdoor_info: list[SearchResult] = field(default_factory=list)
+    compensation_info: list[SearchResult] = field(default_factory=list)
 
 
 @dataclass
@@ -90,12 +94,16 @@ class PrepDocument:
     video_link: str
     interviewer_names: list[str]
     company_overview: str
+    products_and_services: list[str]
+    competitors: list[str]
     recent_news: list[str]
     role_analysis: str
     interviewer_backgrounds: dict[str, str]
     potential_questions: list[str]
     questions_to_ask: list[str]
     key_talking_points: list[str]
+    sheet_talking_points: list[str]
+    compensation: dict[str, str]
     sources: list[str]
     interview_type: str = "Interview"
 
@@ -110,12 +118,16 @@ class PrepDocument:
             video_link=data.get("video_link", ""),
             interviewer_names=data.get("interviewer_names", []),
             company_overview=data.get("company_overview", ""),
+            products_and_services=data.get("products_and_services", []),
+            competitors=data.get("competitors", []),
             recent_news=data.get("recent_news", []),
             role_analysis=data.get("role_analysis", ""),
             interviewer_backgrounds=data.get("interviewer_backgrounds", {}),
             potential_questions=data.get("potential_questions", []),
             questions_to_ask=data.get("questions_to_ask", []),
             key_talking_points=data.get("key_talking_points", []),
+            sheet_talking_points=data.get("sheet_talking_points", []),
+            compensation=data.get("compensation", {}),
             sources=data.get("sources", []),
             interview_type=data.get("interview_type", "Interview"),
         )

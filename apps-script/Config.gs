@@ -3,15 +3,27 @@ function getConfig() {
   var email = '';
   try { email = Session.getActiveUser().getEmail(); } catch (e) {}
 
+  var aliasRaw = props.getProperty('USER_ALIASES') || '';
+  var aliases = aliasRaw ? aliasRaw.split(',').map(function (a) { return a.trim(); }).filter(Boolean) : [];
+
+  var extraDomainsRaw = props.getProperty('EXTRA_RECRUITING_DOMAINS') || '';
+  var extraDomains = extraDomainsRaw ? extraDomainsRaw.split(',').map(function (d) { return d.trim().toLowerCase(); }).filter(Boolean) : [];
+
+  var extraKeywordsRaw = props.getProperty('EXTRA_MATCH_KEYWORDS') || '';
+  var extraKeywords = extraKeywordsRaw ? extraKeywordsRaw.split(',').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean) : [];
+
   return {
     anthropicApiKey: props.getProperty('ANTHROPIC_API_KEY') || '',
     userName: props.getProperty('USER_NAME') || '',
+    userAliases: aliases,
     userEmail: props.getProperty('USER_EMAIL') || email,
     lookAheadDays: parseInt(props.getProperty('LOOK_AHEAD_DAYS') || '14', 10),
     tavilyApiKey: props.getProperty('TAVILY_API_KEY') || '',
     claudeModel: props.getProperty('CLAUDE_MODEL') || 'claude-sonnet-4-6',
     driveFolderId: props.getProperty('DRIVE_FOLDER_ID') || '',
-    resumeText: props.getProperty('RESUME_TEXT') || ''
+    resumeText: props.getProperty('RESUME_TEXT') || '',
+    extraRecruitingDomains: extraDomains,
+    extraMatchKeywords: extraKeywords
   };
 }
 
@@ -56,6 +68,17 @@ function setupApiKeys() {
   if (nameResult.getSelectedButton() === ui.Button.CANCEL) return;
   var newName = nameResult.getResponseText().trim();
   if (newName) props.setProperty('USER_NAME', newName);
+
+  var currentAliases = props.getProperty('USER_ALIASES') || '';
+  var aliasResult = ui.prompt(
+    'Name Aliases (Optional)',
+    'Enter alternate names/aliases, comma-separated (e.g. "Theodore Castro,Theodore").\nUsed to detect events with your name in the title.\nCurrent: ' + (currentAliases || '(not set)'),
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (aliasResult.getSelectedButton() !== ui.Button.CANCEL) {
+    var newAliases = aliasResult.getResponseText().trim();
+    if (newAliases) props.setProperty('USER_ALIASES', newAliases);
+  }
 
   var tavilyResult = ui.prompt(
     'Tavily API Key (Optional)',

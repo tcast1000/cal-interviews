@@ -10,11 +10,14 @@ from utils import parse_datetime
 
 logger = logging.getLogger(__name__)
 
-RECRUITING_DOMAINS = {
+DEFAULT_RECRUITING_DOMAINS = {
     "greenhouse.io", "lever.co", "ashbyhq.com", "goodtime.io",
     "calendly.com", "hire.lever.co", "app.greenhouse.io",
     "resource.io", "modernloop.com", "prelude.co", "gem.com",
     "brighthire.ai", "metaview.ai",
+    "icims.com", "workday.com", "smartrecruiters.com",
+    "rippling.com", "bamboohr.com", "jobvite.com",
+    "myworkdayjobs.com", "hirebridge.com", "breezy.hr",
 }
 
 INTERVIEW_TYPE_KEYWORDS = {
@@ -116,33 +119,63 @@ def _extract_company_and_role(title: str, description: str | None) -> tuple[str 
     return company, role
 
 
+SOFT_KEYWORDS = [
+    "screen", "chat", "meet", "call", "interview",
+    "discussion", "intro", "conversation", "debrief", "1:1",
+    "one on one", "phone", "virtual", "video",
+]
+
+
+def _get_recruiting_domains(config: Config) -> set[str]:
+    return DEFAULT_RECRUITING_DOMAINS | config.extra_recruiting_domains
+
+
+def _get_attendee_domains(event: dict) -> list[str]:
+    domains = []
+    for attendee in event.get("attendees", []):
+        email = attendee.get("email", "")
+        if "@" in email:
+            domains.append(email.split("@")[1].lower())
+    return domains
+
+
+def _is_cancelled_or_declined(event: dict) -> bool:
+    if event.get("status") == "cancelled":
+        return True
+    for attendee in event.get("attendees", []):
+        if attendee.get("self") and attendee.get("responseStatus") == "declined":
+            return True
+    return False
+
+
 def _is_interview_event(event: dict, config: Config) -> bool:
     title = event.get("summary", "").lower()
     description = (event.get("description") or "").lower()
+    recruiting_domains = _get_recruiting_domains(config)
+    attendee_domains = _get_attendee_domains(event)
+    has_recruiting_attendee = any(d in recruiting_domains for d in attendee_domains)
 
     if "interview" in title:
         return True
 
-    if config.user_name and config.user_name.lower() in title:
+    names_to_check = []
+    if config.user_name:
+        names_to_check.append(config.user_name.lower())
+    names_to_check.extend(alias.lower() for alias in config.user_aliases)
+    if any(name in title for name in names_to_check):
         return True
 
+    if config.extra_match_keywords and any(kw in title for kw in config.extra_match_keywords):
+        return True
+
+    soft_match = any(kw in title for kw in SOFT_KEYWORDS)
+
     if "interview" in description:
-        attendees = event.get("attendees", [])
-        for attendee in attendees:
-            email = attendee.get("email", "")
-            domain = email.split("@")[1].lower() if "@" in email else ""
-            if domain in RECRUITING_DOMAINS:
-                return True
-        if any(kw in title.lower() for kw in ["screen", "chat", "meet", "call"]):
+        if has_recruiting_attendee or soft_match:
             return True
 
-    attendees = event.get("attendees", [])
-    for attendee in attendees:
-        email = attendee.get("email", "")
-        domain = email.split("@")[1].lower() if "@" in email else ""
-        if domain in RECRUITING_DOMAINS:
-            if any(kw in title.lower() for kw in ["screen", "chat", "meet", "call", "interview"]):
-                return True
+    if has_recruiting_attendee and soft_match:
+        return True
 
     return False
 
@@ -180,6 +213,7 @@ def _parse_event(event: dict, config: Config) -> InterviewEvent:
         interview_type=_detect_interview_type(title, event.get("description")),
         company_name=company,
         role_title=role,
+        updated=event.get("updated"),
     )
 
     if not ie.company_name:
@@ -190,6 +224,30 @@ def _parse_event(event: dict, config: Config) -> InterviewEvent:
     return ie
 
 
+def _fetch_all_events(calendar_service, calendar_id: str, time_min: str, time_max: str) -> list[dict]:
+    all_events: list[dict] = []
+    page_token = None
+    while True:
+        result = (
+            calendar_service.events()
+            .list(
+                calendarId=calendar_id,
+                timeMin=time_min,
+                timeMax=time_max,
+                singleEvents=True,
+                orderBy="startTime",
+                maxResults=250,
+                pageToken=page_token,
+            )
+            .execute()
+        )
+        all_events.extend(result.get("items", []))
+        page_token = result.get("nextPageToken")
+        if not page_token:
+            break
+    return all_events
+
+
 def get_interview_events(
     calendar_service, config: Config, days: int | None = None
 ) -> list[InterviewEvent]:
@@ -197,30 +255,38 @@ def get_interview_events(
     now = datetime.now(timezone.utc)
     time_max = now + timedelta(days=look_ahead)
 
-    logger.info("Scanning calendar for next %d days...", look_ahead)
+    logger.info("Scanning %d calendar(s) for next %d days...", len(config.calendar_ids), look_ahead)
 
-    events_result = (
-        calendar_service.events()
-        .list(
-            calendarId="primary",
-            timeMin=now.isoformat(),
-            timeMax=time_max.isoformat(),
-            singleEvents=True,
-            orderBy="startTime",
-            maxResults=100,
-        )
-        .execute()
-    )
+    all_events: list[dict] = []
+    for cal_id in config.calendar_ids:
+        try:
+            cal_events = _fetch_all_events(
+                calendar_service, cal_id, now.isoformat(), time_max.isoformat()
+            )
+            logger.info("  Calendar '%s': %d events", cal_id, len(cal_events))
+            all_events.extend(cal_events)
+        except Exception as e:
+            logger.warning("  Calendar '%s' failed: %s", cal_id, e)
 
-    all_events = events_result.get("items", [])
-    logger.info("Found %d total calendar events", len(all_events))
+    logger.info("Found %d total calendar events across all calendars", len(all_events))
 
+    seen_ids: set[str] = set()
     interview_events = []
     for event in all_events:
+        event_id = event.get("id", "")
+        if event_id in seen_ids:
+            continue
+        seen_ids.add(event_id)
+
+        if _is_cancelled_or_declined(event):
+            logger.debug("  Skipping cancelled/declined: %s", event.get("summary", ""))
+            continue
+
         if _is_interview_event(event, config):
             parsed = _parse_event(event, config)
             interview_events.append(parsed)
             logger.info("  Interview found: %s (%s)", parsed.title, parsed.start_time.strftime("%Y-%m-%d %H:%M"))
 
+    interview_events.sort(key=lambda e: e.start_time)
     logger.info("Found %d interview event(s)", len(interview_events))
     return interview_events

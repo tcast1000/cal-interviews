@@ -24,12 +24,22 @@ Your output must be a JSON object with exactly these fields:
     "video_link": "string or empty",
     "interviewer_names": ["list of interviewer names"],
     "company_overview": "2-3 paragraphs about the company: what they do, their mission, size, stage, culture, and anything notable. Write in a way that helps the candidate sound knowledgeable.",
+    "products_and_services": ["4-6 bullet points listing the company's main products, services, or platforms. Each should be a brief description (1 sentence max) of what it is and who it serves."],
+    "competitors": ["3-5 direct competitors or closest alternatives in the market. For each, include the company name and a short phrase on how they compete (e.g. 'Datadog — competing in observability/monitoring')."],
     "recent_news": ["3-5 recent news items or developments, each 1-2 sentences"],
     "role_analysis": "2-3 paragraphs analyzing the role: key responsibilities, required skills, and how to frame experience to match. If the candidate provided a resume, reference specific experience that maps to the role.",
     "interviewer_backgrounds": {"interviewer name": "1-2 paragraphs about their background, role, interests, and potential topics they might focus on"},
     "potential_questions": ["10 likely interview questions based on the role, company, and interview type. Include a mix of behavioral, technical, and role-specific questions."],
     "questions_to_ask": ["8-10 thoughtful questions the candidate should ask. These should demonstrate research and genuine interest. Avoid generic questions."],
     "key_talking_points": ["5 specific talking points connecting the candidate's potential strengths to this role and company. Make these concrete and memorable."],
+    "sheet_talking_points": ["3-4 punchy one-liners (max 12 words each) for a quick-glance cheat sheet. Each should be a concrete, actionable reminder — not a generic platitude. Format: what to mention or emphasize, not a full sentence. Example: 'Led 3x revenue growth at Series B stage', 'Mention migrating 2M users to microservices', 'Ask about their Q3 platform rewrite'."],
+    "compensation": {
+        "base_range": "estimated base salary range (e.g. '$150K–$180K'). Use data from levels.fyi, Glassdoor, or similar sources if available. If no data, give a reasonable market estimate and note it.",
+        "total_comp_range": "estimated total compensation range including equity/bonus (e.g. '$200K–$280K'). Leave empty string if insufficient data.",
+        "equity_notes": "brief note on equity structure if known (e.g. 'RSUs, 4-year vest with 1-year cliff'). Leave empty string if unknown.",
+        "source": "where the comp data came from (e.g. 'levels.fyi', 'Glassdoor', 'market estimate')",
+        "notes": "any caveats — e.g. 'data is for SF Bay Area, adjust for location', 'limited data points', 'comp varies significantly by level'"
+    },
     "sources": ["list of URLs used in research"],
     "interview_type": "string (e.g. 'Technical', 'Behavioral', 'Phone Screen')"
 }
@@ -40,6 +50,10 @@ Guidelines:
 - If information is missing, make reasonable inferences but note uncertainty.
 - Questions to ask should show the candidate has done their homework.
 - Key talking points should be the kind of things that make an interviewer think "this person really prepared."
+- sheet_talking_points are NOT a copy of key_talking_points. They are ultra-short reminders for a spreadsheet glance — think sticky-note bullets, not sentences. No fluff, no generic advice like "show enthusiasm" or "demonstrate leadership."
+- products_and_services should cover the company's core offerings. If it's a startup, describe the main product. If a large company, focus on the division/team most relevant to the role.
+- competitors should name real companies, not vague categories.
+- compensation: use actual data from the research results when available. Prefer levels.fyi data, then Glassdoor, then general market estimates. Always note the source and any caveats. If the role title is vague, estimate for the most likely level. Do not fabricate specific numbers — if data is thin, say so and give a wide range.
 - Return ONLY the JSON object, no other text."""
 
 RESUME_ADDENDUM = """
@@ -80,6 +94,18 @@ def _build_research_context(event: InterviewEvent, research: ResearchResults) ->
             sections.append(f"  [{r.title}]({r.url})")
             sections.append(f"  {r.snippet}")
 
+    if research.products_and_services:
+        sections.append(f"\nPRODUCTS & SERVICES RESEARCH:")
+        for r in research.products_and_services:
+            sections.append(f"  [{r.title}]({r.url})")
+            sections.append(f"  {r.snippet}")
+
+    if research.competitors:
+        sections.append(f"\nCOMPETITOR RESEARCH:")
+        for r in research.competitors:
+            sections.append(f"  [{r.title}]({r.url})")
+            sections.append(f"  {r.snippet}")
+
     if research.company_news:
         sections.append(f"\nRECENT NEWS:")
         for r in research.company_news:
@@ -103,6 +129,12 @@ def _build_research_context(event: InterviewEvent, research: ResearchResults) ->
     if research.glassdoor_info:
         sections.append(f"\nINTERVIEW TIPS & GLASSDOOR:")
         for r in research.glassdoor_info:
+            sections.append(f"  [{r.title}]({r.url})")
+            sections.append(f"  {r.snippet}")
+
+    if research.compensation_info:
+        sections.append(f"\nCOMPENSATION RESEARCH:")
+        for r in research.compensation_info:
             sections.append(f"  [{r.title}]({r.url})")
             sections.append(f"  {r.snippet}")
 
@@ -149,12 +181,16 @@ def synthesize_prep(
             video_link=event.video_link or "",
             interviewer_names=[i.name for i in event.interviewers],
             company_overview="Research synthesis failed. Please review raw research data.",
+            products_and_services=[],
+            competitors=[],
             recent_news=[],
             role_analysis="Could not synthesize role analysis.",
             interviewer_backgrounds={},
             potential_questions=["Tell me about yourself.", "Why this company?", "Why this role?"],
             questions_to_ask=["What does a typical day look like?", "What are the team's priorities?"],
             key_talking_points=["Review raw research and prepare your own talking points."],
+            sheet_talking_points=["Review prep doc"],
+            compensation={},
             sources=[],
             interview_type=event.interview_type,
         )

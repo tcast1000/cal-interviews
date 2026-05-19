@@ -9,15 +9,28 @@ function getInterviewEvents(lookAheadDays) {
 
   console.log('Found ' + events.length + ' total calendar events');
 
+  var seenIds = {};
   var interviews = [];
   for (var i = 0; i < events.length; i++) {
-    if (isInterviewEvent_(events[i], config)) {
-      var parsed = parseCalendarEvent_(events[i], config);
+    var calEvent = events[i];
+    var eventId = calEvent.getId();
+
+    if (seenIds[eventId]) continue;
+    seenIds[eventId] = true;
+
+    if (isCancelledOrDeclined_(calEvent)) {
+      console.log('  Skipping cancelled/declined: ' + calEvent.getTitle());
+      continue;
+    }
+
+    if (isInterviewEvent_(calEvent, config)) {
+      var parsed = parseCalendarEvent_(calEvent, config);
       interviews.push(parsed);
       console.log('  Interview found: ' + parsed.title + ' (' + formatDateTime_(parsed.startTime) + ')');
     }
   }
 
+  interviews.sort(function (a, b) { return a.startTime.getTime() - b.startTime.getTime(); });
   console.log('Found ' + interviews.length + ' interview event(s)');
   return interviews;
 }
@@ -35,36 +48,57 @@ function getNewInterviewEvents() {
   return newEvents;
 }
 
+function isCancelledOrDeclined_(calEvent) {
+  var myStatus = calEvent.getMyStatus();
+  if (myStatus === CalendarApp.GuestStatus.NO) return true;
+  return false;
+}
+
 function isInterviewEvent_(calEvent, config) {
   var title = calEvent.getTitle().toLowerCase();
   var description = (calEvent.getDescription() || '').toLowerCase();
+  var recruitingDomains = getRecruitingDomains_(config);
 
   if (title.indexOf('interview') !== -1) return true;
 
-  if (config.userName && title.indexOf(config.userName.toLowerCase()) !== -1) return true;
+  var namesToCheck = [];
+  if (config.userName) namesToCheck.push(config.userName.toLowerCase());
+  var aliases = config.userAliases || [];
+  for (var a = 0; a < aliases.length; a++) {
+    if (aliases[a]) namesToCheck.push(aliases[a].toLowerCase());
+  }
+  for (var n = 0; n < namesToCheck.length; n++) {
+    if (title.indexOf(namesToCheck[n]) !== -1) return true;
+  }
 
-  if (description.indexOf('interview') !== -1) {
-    var guests = calEvent.getGuestList(false);
-    for (var i = 0; i < guests.length; i++) {
-      var d = extractDomain_(guests[i].getEmail());
-      if (d && RECRUITING_DOMAINS.indexOf(d) !== -1) return true;
-    }
-    var screenKeywords = ['screen', 'chat', 'meet', 'call'];
-    for (var j = 0; j < screenKeywords.length; j++) {
-      if (title.indexOf(screenKeywords[j]) !== -1) return true;
-    }
+  var extraKeywords = config.extraMatchKeywords || [];
+  for (var k = 0; k < extraKeywords.length; k++) {
+    if (extraKeywords[k] && title.indexOf(extraKeywords[k]) !== -1) return true;
   }
 
   var guests = calEvent.getGuestList(false);
+  var hasRecruitingAttendee = false;
   for (var i = 0; i < guests.length; i++) {
     var d = extractDomain_(guests[i].getEmail());
-    if (d && RECRUITING_DOMAINS.indexOf(d) !== -1) {
-      var keywords = ['screen', 'chat', 'meet', 'call', 'interview'];
-      for (var j = 0; j < keywords.length; j++) {
-        if (title.indexOf(keywords[j]) !== -1) return true;
-      }
+    if (d && recruitingDomains.indexOf(d) !== -1) {
+      hasRecruitingAttendee = true;
+      break;
     }
   }
+
+  var softMatch = false;
+  for (var j = 0; j < SOFT_KEYWORDS.length; j++) {
+    if (title.indexOf(SOFT_KEYWORDS[j]) !== -1) {
+      softMatch = true;
+      break;
+    }
+  }
+
+  if (description.indexOf('interview') !== -1) {
+    if (hasRecruitingAttendee || softMatch) return true;
+  }
+
+  if (hasRecruitingAttendee && softMatch) return true;
 
   return false;
 }
@@ -115,7 +149,8 @@ function parseCalendarEvent_(calEvent, config) {
     roleTitle: extracted.role,
     interviewType: detectInterviewType_(title, description),
     interviewers: [],
-    preparationInstructions: null
+    preparationInstructions: null,
+    updated: calEvent.getLastUpdated() ? calEvent.getLastUpdated().toISOString() : null
   };
 
   if (!event.companyName) {

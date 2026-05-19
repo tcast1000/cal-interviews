@@ -3,6 +3,7 @@ function onOpen() {
   ui.createMenu('Interview Prep')
     .addItem('Run Manual Check', 'runManualCheck')
     .addItem('Refresh All Upcoming', 'refreshAllUpcoming')
+    .addItem('View Pipeline', 'viewPipeline')
     .addSeparator()
     .addItem('Setup API Keys', 'setupApiKeys')
     .addItem('Install Calendar Trigger', 'installCalendarTrigger')
@@ -111,7 +112,7 @@ function processEvent_(event) {
   console.log('========================================');
 
   // Step 1: Gmail enrichment
-  console.log('[1/5] Enriching from Gmail...');
+  console.log('[1/6] Enriching from Gmail...');
   try {
     event = enrichFromGmail(event);
   } catch (e) {
@@ -121,17 +122,21 @@ function processEvent_(event) {
   console.log('  Role: ' + (event.roleTitle || '(unknown)'));
 
   // Step 2: Web research
-  console.log('[2/5] Researching...');
+  console.log('[2/6] Researching...');
   var research;
   try {
     research = researchInterview(event);
   } catch (e) {
     console.warn('Research failed: ' + e);
-    research = { companyInfo: [], companyNews: [], roleInfo: [], interviewerInfo: {}, glassdoorInfo: [] };
+    research = {
+      companyInfo: [], productsAndServices: [], competitors: [],
+      companyNews: [], roleInfo: [], interviewerInfo: {},
+      glassdoorInfo: [], compensationInfo: []
+    };
   }
 
   // Step 3: Claude synthesis
-  console.log('[3/5] Synthesizing prep materials...');
+  console.log('[3/6] Synthesizing prep materials...');
   var prep;
   try {
     prep = synthesizePrep(event, research);
@@ -142,7 +147,7 @@ function processEvent_(event) {
   }
 
   // Step 4: Create Google Doc
-  console.log('[4/5] Creating Google Doc...');
+  console.log('[4/6] Creating Google Doc...');
   var docUrl = '';
   try {
     docUrl = createPrepDoc(prep);
@@ -156,7 +161,7 @@ function processEvent_(event) {
   console.log('  API cost for this event: $' + apiCost.toFixed(4));
 
   // Step 5: Update tracker sheet
-  console.log('[5/5] Updating tracker sheet...');
+  console.log('[5/6] Updating tracker sheet...');
   var rowNum = 0;
   try {
     rowNum = writeToSheet(event, prep, docUrl, apiCost);
@@ -167,6 +172,18 @@ function processEvent_(event) {
   // Mark as processed
   if (docUrl) {
     markProcessed_(event.eventId, docUrl, rowNum);
+  }
+
+  // Step 6: Register pipeline & sync overview
+  console.log('[6/6] Updating pipeline...');
+  try {
+    registerPipelineEvent_(event, prep, docUrl);
+    var summaries = getPipelineSummaries_();
+    if (summaries.length > 0) {
+      syncPipelineSheet_(summaries);
+    }
+  } catch (e) {
+    console.warn('Pipeline update failed: ' + e);
   }
 
   console.log('Done! Prep doc: ' + docUrl);
@@ -327,6 +344,34 @@ function checkSetup() {
   }
 
   ui.alert('Setup Check Results', results.join('\n'), ui.ButtonSet.OK);
+}
+
+function viewPipeline() {
+  var ui = SpreadsheetApp.getUi();
+  var summaries = getPipelineSummaries_();
+
+  if (summaries.length === 0) {
+    ui.alert('Pipeline', 'No active pipelines.', ui.ButtonSet.OK);
+    return;
+  }
+
+  syncPipelineSheet_(summaries);
+
+  var lines = [];
+  for (var i = 0; i < summaries.length; i++) {
+    var s = summaries[i];
+    var flag = '';
+    if (s.needsDebrief) flag = ' [DEBRIEF NEEDED]';
+    else if (s.needsFollowUp) flag = ' [FOLLOW UP]';
+    else if (s.daysSilent > 7) flag = ' [' + s.daysSilent + 'd silent]';
+
+    lines.push(s.companyName + ' — ' + (s.roleTitle || 'Role TBD'));
+    lines.push('  Status: ' + s.status + ' | Stage: ' + s.currentStage + ' | Rounds: ' + s.stageCount + flag);
+    if (s.nextAction !== 'None') lines.push('  Next: ' + s.nextAction);
+    lines.push('');
+  }
+
+  ui.alert('Interview Pipeline (' + summaries.length + ' active)', lines.join('\n'), ui.ButtonSet.OK);
 }
 
 function logError_(eventTitle, errorMsg) {

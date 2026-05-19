@@ -24,6 +24,24 @@ function createPrepDoc(prep) {
   body.appendParagraph(prep.company_overview || 'No information available.');
   body.appendParagraph('');
 
+  // Products & Services
+  if (prep.products_and_services && prep.products_and_services.length > 0) {
+    body.appendParagraph('Products & Services').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    for (var i = 0; i < prep.products_and_services.length; i++) {
+      body.appendListItem(prep.products_and_services[i]).setGlyphType(DocumentApp.GlyphType.BULLET);
+    }
+    body.appendParagraph('');
+  }
+
+  // Competitors
+  if (prep.competitors && prep.competitors.length > 0) {
+    body.appendParagraph('Competitors').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    for (var i = 0; i < prep.competitors.length; i++) {
+      body.appendListItem(prep.competitors[i]).setGlyphType(DocumentApp.GlyphType.BULLET);
+    }
+    body.appendParagraph('');
+  }
+
   // Recent News
   if (prep.recent_news && prep.recent_news.length > 0) {
     body.appendParagraph('Recent News').setHeading(DocumentApp.ParagraphHeading.HEADING1);
@@ -67,6 +85,18 @@ function createPrepDoc(prep) {
     for (var i = 0; i < prep.questions_to_ask.length; i++) {
       body.appendListItem((i + 1) + '. ' + prep.questions_to_ask[i]);
     }
+    body.appendParagraph('');
+  }
+
+  // Compensation Context
+  var comp = prep.compensation || {};
+  if (comp.base_range || comp.total_comp_range) {
+    body.appendParagraph('Compensation Context').setHeading(DocumentApp.ParagraphHeading.HEADING1);
+    if (comp.base_range) appendBoldLine_(body, 'Base Salary Range: ' + comp.base_range);
+    if (comp.total_comp_range) appendBoldLine_(body, 'Total Comp Range: ' + comp.total_comp_range);
+    if (comp.equity_notes) body.appendParagraph('Equity: ' + comp.equity_notes);
+    if (comp.source) body.appendParagraph('Source: ' + comp.source);
+    if (comp.notes) body.appendParagraph('Notes: ' + comp.notes);
     body.appendParagraph('');
   }
 

@@ -4,12 +4,30 @@ var PERSONAL_DOMAINS = [
   'live.com', 'msn.com'
 ];
 
-var RECRUITING_DOMAINS = [
+var DEFAULT_RECRUITING_DOMAINS = [
   'greenhouse.io', 'lever.co', 'ashbyhq.com', 'goodtime.io',
   'calendly.com', 'hire.lever.co', 'app.greenhouse.io',
   'resource.io', 'modernloop.com', 'prelude.co', 'gem.com',
-  'brighthire.ai', 'metaview.ai'
+  'brighthire.ai', 'metaview.ai',
+  'icims.com', 'workday.com', 'smartrecruiters.com',
+  'rippling.com', 'bamboohr.com', 'jobvite.com',
+  'myworkdayjobs.com', 'hirebridge.com', 'breezy.hr'
 ];
+
+var SOFT_KEYWORDS = [
+  'screen', 'chat', 'meet', 'call', 'interview',
+  'discussion', 'intro', 'conversation', 'debrief', '1:1',
+  'one on one', 'phone', 'virtual', 'video'
+];
+
+function getRecruitingDomains_(config) {
+  var domains = DEFAULT_RECRUITING_DOMAINS.slice();
+  var extra = config.extraRecruitingDomains || [];
+  for (var i = 0; i < extra.length; i++) {
+    if (extra[i] && domains.indexOf(extra[i]) === -1) domains.push(extra[i]);
+  }
+  return domains;
+}
 
 var INTERVIEW_TYPE_KEYWORDS = {
   'phone screen': 'Phone Screen',

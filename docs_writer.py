@@ -123,6 +123,22 @@ def _build_sections(prep: PrepDocument) -> list[list[dict]]:
     company.append({"type": "body", "text": f"{prep.company_overview}\n\n"})
     sections.append(company)
 
+    # Products & Services
+    if prep.products_and_services:
+        products = [{"type": "heading1", "text": "Products & Services\n"}]
+        for item in prep.products_and_services:
+            products.append({"type": "body", "text": f"• {item}\n"})
+        products.append({"type": "body", "text": "\n"})
+        sections.append(products)
+
+    # Competitors
+    if prep.competitors:
+        competitors = [{"type": "heading1", "text": "Competitors\n"}]
+        for item in prep.competitors:
+            competitors.append({"type": "body", "text": f"• {item}\n"})
+        competitors.append({"type": "body", "text": "\n"})
+        sections.append(competitors)
+
     # Recent News
     if prep.recent_news:
         news = [{"type": "heading1", "text": "Recent News\n"}]
@@ -159,6 +175,23 @@ def _build_sections(prep: PrepDocument) -> list[list[dict]]:
             ask.append({"type": "body", "text": f"{i}. {q}\n"})
         ask.append({"type": "body", "text": "\n"})
         sections.append(ask)
+
+    # Compensation Context
+    if prep.compensation and any(prep.compensation.get(k) for k in ("base_range", "total_comp_range")):
+        comp = prep.compensation
+        comp_section = [{"type": "heading1", "text": "Compensation Context\n"}]
+        if comp.get("base_range"):
+            comp_section.append({"type": "bold_line", "text": f"Base Salary Range: {comp['base_range']}\n"})
+        if comp.get("total_comp_range"):
+            comp_section.append({"type": "bold_line", "text": f"Total Comp Range: {comp['total_comp_range']}\n"})
+        if comp.get("equity_notes"):
+            comp_section.append({"type": "body", "text": f"Equity: {comp['equity_notes']}\n"})
+        if comp.get("source"):
+            comp_section.append({"type": "body", "text": f"Source: {comp['source']}\n"})
+        if comp.get("notes"):
+            comp_section.append({"type": "body", "text": f"Notes: {comp['notes']}\n"})
+        comp_section.append({"type": "body", "text": "\n"})
+        sections.append(comp_section)
 
     # Key Talking Points
     if prep.key_talking_points:
