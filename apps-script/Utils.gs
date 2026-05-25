@@ -89,6 +89,11 @@ function truncate_(text, maxChars) {
   return text.substring(0, maxChars - 3) + '...';
 }
 
+function normalizeForMatch_(text) {
+  if (!text) return '';
+  return text.toLowerCase().replace(/[^a-z0-9]/g, '');
+}
+
 function formatDate_(date) {
   return Utilities.formatDate(date, Session.getScriptTimeZone(), "EEEE, MMMM d, yyyy");
 }

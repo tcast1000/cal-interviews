@@ -6,7 +6,7 @@ from datetime import datetime, timedelta, timezone
 
 from config import Config
 from models import Attendee, InterviewEvent
-from utils import parse_datetime
+from utils import normalize_for_match, parse_datetime
 
 logger = logging.getLogger(__name__)
 
@@ -116,6 +116,11 @@ def _extract_company_and_role(title: str, description: str | None) -> tuple[str 
         company = m.group(2).strip()
         return company, role
 
+    # Fallback for missing-space typos: "Interviewwith Acme", "InterviewAcme - Role"
+    m = re.match(r"^interview(?:with|at|@)?\s*([A-Z][\w.&-]+(?:\s+[\w.&-]+){0,3})", t, re.IGNORECASE)
+    if m and not company:
+        company = m.group(1).strip()
+
     return company, role
 
 
@@ -151,11 +156,13 @@ def _is_cancelled_or_declined(event: dict) -> bool:
 def _is_interview_event(event: dict, config: Config) -> bool:
     title = event.get("summary", "").lower()
     description = (event.get("description") or "").lower()
+    norm_title = normalize_for_match(title)
+    norm_description = normalize_for_match(description)
     recruiting_domains = _get_recruiting_domains(config)
     attendee_domains = _get_attendee_domains(event)
     has_recruiting_attendee = any(d in recruiting_domains for d in attendee_domains)
 
-    if "interview" in title:
+    if "interview" in title or "interview" in norm_title:
         return True
 
     names_to_check = []
@@ -164,13 +171,23 @@ def _is_interview_event(event: dict, config: Config) -> bool:
     names_to_check.extend(alias.lower() for alias in config.user_aliases)
     if any(name in title for name in names_to_check):
         return True
+    norm_names = [normalize_for_match(n) for n in names_to_check if normalize_for_match(n)]
+    if any(n in norm_title for n in norm_names):
+        return True
 
     if config.extra_match_keywords and any(kw in title for kw in config.extra_match_keywords):
         return True
+    if config.extra_match_keywords:
+        norm_extras = [normalize_for_match(k) for k in config.extra_match_keywords if normalize_for_match(k)]
+        if any(k in norm_title for k in norm_extras):
+            return True
 
     soft_match = any(kw in title for kw in SOFT_KEYWORDS)
+    if not soft_match:
+        norm_softs = [normalize_for_match(k) for k in SOFT_KEYWORDS]
+        soft_match = any(k in norm_title for k in norm_softs if k)
 
-    if "interview" in description:
+    if "interview" in description or "interview" in norm_description:
         if has_recruiting_attendee or soft_match:
             return True
 

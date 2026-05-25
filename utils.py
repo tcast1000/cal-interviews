@@ -59,3 +59,9 @@ def truncate(text: str, max_chars: int = 500) -> str:
     if len(text) <= max_chars:
         return text
     return text[: max_chars - 3] + "..."
+
+
+def normalize_for_match(text: str) -> str:
+    if not text:
+        return ""
+    return re.sub(r"[^a-z0-9]", "", text.lower())

@@ -82,6 +82,53 @@ class ResearchResults:
     interviewer_info: dict[str, list[SearchResult]] = field(default_factory=dict)
     glassdoor_info: list[SearchResult] = field(default_factory=list)
     compensation_info: list[SearchResult] = field(default_factory=list)
+    values_info: list[SearchResult] = field(default_factory=list)
+    social_links: dict[str, str] = field(default_factory=dict)
+    job_description_url: str = ""
+    job_description_source: str = ""
+    from_cache: bool = False
+
+    def to_cache_dict(self) -> dict:
+        def _ser(rs: list[SearchResult]) -> list[dict]:
+            return [{"title": r.title, "snippet": r.snippet, "url": r.url} for r in rs]
+        return {
+            "company_info": _ser(self.company_info),
+            "products_and_services": _ser(self.products_and_services),
+            "competitors": _ser(self.competitors),
+            "company_news": _ser(self.company_news),
+            "role_info": _ser(self.role_info),
+            "glassdoor_info": _ser(self.glassdoor_info),
+            "compensation_info": _ser(self.compensation_info),
+            "values_info": _ser(self.values_info),
+            "social_links": dict(self.social_links),
+            "job_description_url": self.job_description_url,
+            "job_description_source": self.job_description_source,
+            "interviewer_info": {
+                name: _ser(results) for name, results in self.interviewer_info.items()
+            },
+        }
+
+    @classmethod
+    def from_cache_dict(cls, data: dict) -> ResearchResults:
+        def _de(items: list[dict]) -> list[SearchResult]:
+            return [SearchResult(title=i.get("title", ""), snippet=i.get("snippet", ""), url=i.get("url", "")) for i in items or []]
+        return cls(
+            company_info=_de(data.get("company_info", [])),
+            products_and_services=_de(data.get("products_and_services", [])),
+            competitors=_de(data.get("competitors", [])),
+            company_news=_de(data.get("company_news", [])),
+            role_info=_de(data.get("role_info", [])),
+            glassdoor_info=_de(data.get("glassdoor_info", [])),
+            compensation_info=_de(data.get("compensation_info", [])),
+            values_info=_de(data.get("values_info", [])),
+            social_links=dict(data.get("social_links", {})),
+            job_description_url=data.get("job_description_url", ""),
+            job_description_source=data.get("job_description_source", ""),
+            interviewer_info={
+                name: _de(results) for name, results in (data.get("interviewer_info") or {}).items()
+            },
+            from_cache=True,
+        )
 
 
 @dataclass
@@ -106,6 +153,13 @@ class PrepDocument:
     compensation: dict[str, str]
     sources: list[str]
     interview_type: str = "Interview"
+    values: list[str] = field(default_factory=list)
+    social_links: dict[str, str] = field(default_factory=dict)
+    job_description_url: str = ""
+    job_description_source: str = ""
+    round_number: int = 1
+    previous_rounds_summary: list[str] = field(default_factory=list)
+    previous_rounds_appendix: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> PrepDocument:
@@ -130,6 +184,13 @@ class PrepDocument:
             compensation=data.get("compensation", {}),
             sources=data.get("sources", []),
             interview_type=data.get("interview_type", "Interview"),
+            values=data.get("values", []),
+            social_links=data.get("social_links", {}),
+            job_description_url=data.get("job_description_url", ""),
+            job_description_source=data.get("job_description_source", ""),
+            round_number=data.get("round_number", 1),
+            previous_rounds_summary=data.get("previous_rounds_summary", []),
+            previous_rounds_appendix=data.get("previous_rounds_appendix", []),
         )
 
     @classmethod

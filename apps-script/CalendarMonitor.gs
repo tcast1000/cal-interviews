@@ -57,9 +57,11 @@ function isCancelledOrDeclined_(calEvent) {
 function isInterviewEvent_(calEvent, config) {
   var title = calEvent.getTitle().toLowerCase();
   var description = (calEvent.getDescription() || '').toLowerCase();
+  var normTitle = normalizeForMatch_(title);
+  var normDescription = normalizeForMatch_(description);
   var recruitingDomains = getRecruitingDomains_(config);
 
-  if (title.indexOf('interview') !== -1) return true;
+  if (title.indexOf('interview') !== -1 || normTitle.indexOf('interview') !== -1) return true;
 
   var namesToCheck = [];
   if (config.userName) namesToCheck.push(config.userName.toLowerCase());
@@ -70,10 +72,18 @@ function isInterviewEvent_(calEvent, config) {
   for (var n = 0; n < namesToCheck.length; n++) {
     if (title.indexOf(namesToCheck[n]) !== -1) return true;
   }
+  for (var nn = 0; nn < namesToCheck.length; nn++) {
+    var nName = normalizeForMatch_(namesToCheck[nn]);
+    if (nName && normTitle.indexOf(nName) !== -1) return true;
+  }
 
   var extraKeywords = config.extraMatchKeywords || [];
   for (var k = 0; k < extraKeywords.length; k++) {
     if (extraKeywords[k] && title.indexOf(extraKeywords[k]) !== -1) return true;
+  }
+  for (var kk = 0; kk < extraKeywords.length; kk++) {
+    var nKw = normalizeForMatch_(extraKeywords[kk]);
+    if (nKw && normTitle.indexOf(nKw) !== -1) return true;
   }
 
   var guests = calEvent.getGuestList(false);
@@ -93,8 +103,17 @@ function isInterviewEvent_(calEvent, config) {
       break;
     }
   }
+  if (!softMatch) {
+    for (var jj = 0; jj < SOFT_KEYWORDS.length; jj++) {
+      var nSoft = normalizeForMatch_(SOFT_KEYWORDS[jj]);
+      if (nSoft && normTitle.indexOf(nSoft) !== -1) {
+        softMatch = true;
+        break;
+      }
+    }
+  }
 
-  if (description.indexOf('interview') !== -1) {
+  if (description.indexOf('interview') !== -1 || normDescription.indexOf('interview') !== -1) {
     if (hasRecruitingAttendee || softMatch) return true;
   }
 
@@ -187,6 +206,9 @@ function extractCompanyAndRole_(title, description) {
 
   m = t.match(/^interview\s*[-:–—]\s*(.+?)\s+(?:at|@)\s+(.+)$/i);
   if (m) return { company: m[2].trim(), role: m[1].trim() };
+
+  m = t.match(/^interview(?:with|at|@)?\s*([A-Z][\w.&-]+(?:\s+[\w.&-]+){0,3})/i);
+  if (m) return { company: m[1].trim(), role: null };
 
   return { company: null, role: null };
 }
