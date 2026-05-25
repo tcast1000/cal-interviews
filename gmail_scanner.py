@@ -5,6 +5,7 @@ import logging
 
 import anthropic
 
+from claude_api import FAST_MODEL
 from config import Config
 from models import InterviewEvent, InterviewerDetail
 from utils import clean_html, extract_domain
@@ -148,8 +149,8 @@ def enrich_from_gmail(
 
     try:
         response = anthropic_client.messages.create(
-            model=config.claude_model,
-            max_tokens=1000,
+            model=FAST_MODEL,
+            max_tokens=700,
             messages=[{"role": "user", "content": prompt}],
         )
 

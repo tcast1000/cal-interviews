@@ -43,7 +43,7 @@ function enrichFromGmail(event) {
       .replace('{title}', event.title)
       .replace('{snippets}', allSnippets.join('\n\n---\n\n'));
 
-    var responseText = callClaudeApi_('', prompt, 1000);
+    var responseText = callClaudeApi_('', prompt, 700, { model: FAST_MODEL });
     var text = responseText.trim();
     if (text.indexOf('```') === 0) {
       text = text.substring(text.indexOf('\n') + 1);
