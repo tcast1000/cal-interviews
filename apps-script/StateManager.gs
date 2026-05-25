@@ -82,8 +82,62 @@ function savePipelines_(pipelines) {
   PropertiesService.getScriptProperties().setProperty('PIPELINES', JSON.stringify(pipelines));
 }
 
+var COMPANY_SUFFIXES = [
+  ' inc.', ' inc', ' corp.', ' corp', ' corporation', ' company',
+  ' labs', ' lab', ' ltd.', ' ltd', ' llc.', ' llc', ' gmbh',
+  ' holdings', ' group', ' technologies', ' technology',
+  '.ai', '.io', '.com', '.co', '.net', '.org'
+];
+
+function stripCompanySuffix_(name) {
+  var s = (name || '').toLowerCase().trim().replace(/[,.;]+$/, '');
+  var changed = true;
+  while (changed) {
+    changed = false;
+    for (var i = 0; i < COMPANY_SUFFIXES.length; i++) {
+      var suf = COMPANY_SUFFIXES[i];
+      if (s.length > suf.length && s.substring(s.length - suf.length) === suf) {
+        s = s.substring(0, s.length - suf.length).trim().replace(/[,.;]+$/, '');
+        changed = true;
+        break;
+      }
+    }
+  }
+  return s;
+}
+
 function normalizeCompanyKey_(name) {
-  return name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return stripCompanySuffix_(name).replace(/[^a-z0-9]/g, '');
+}
+
+function resolveCompanyKey_(companyName) {
+  var newKey = normalizeCompanyKey_(companyName);
+  if (!newKey) return '';
+  var pipelines = getPipelines_();
+  if (pipelines[newKey]) return newKey;
+  var keys = Object.keys(pipelines);
+  for (var i = 0; i < keys.length; i++) {
+    var existingKey = keys[i];
+    var existingName = pipelines[existingKey].companyName || '';
+    if (normalizeCompanyKey_(existingName) === newKey) {
+      if (existingKey !== newKey) {
+        pipelines[newKey] = pipelines[existingKey];
+        delete pipelines[existingKey];
+        savePipelines_(pipelines);
+        var cache = getCompanyResearchCache_();
+        if (cache[existingKey]) {
+          cache[newKey] = cache[existingKey];
+          delete cache[existingKey];
+          saveCompanyResearchCache_(cache);
+        }
+        console.log('Migrated pipeline key ' + existingKey + ' -> ' + newKey);
+      }
+      return newKey;
+    }
+    var existingStripped = existingKey.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (existingStripped === newKey) return existingKey;
+  }
+  return newKey;
 }
 
 function upsertPipeline_(companyKey, companyName, roleTitle) {
@@ -146,6 +200,92 @@ function registerPipelineEvent_(event, prep, docUrl) {
   var stageCount = pipelines[companyKey] ? pipelines[companyKey].stages.length : 0;
   console.log('Pipeline "' + company + '": stage ' + stageCount + ' (' + event.interviewType + ') registered');
   return companyKey;
+}
+
+function getRoundNumber_(companyKey, eventId) {
+  var pipelines = getPipelines_();
+  var p = pipelines[companyKey];
+  if (!p) return 1;
+  var stages = p.stages || [];
+  for (var i = 0; i < stages.length; i++) {
+    if (stages[i].eventId === eventId) return i + 1;
+  }
+  return stages.length + 1;
+}
+
+function getPriorStages_(companyKey, excludeEventId) {
+  var pipelines = getPipelines_();
+  var p = pipelines[companyKey];
+  if (!p) return [];
+  var stages = p.stages || [];
+  var out = [];
+  for (var i = 0; i < stages.length; i++) {
+    if (stages[i].eventId !== excludeEventId) out.push(stages[i]);
+  }
+  return out;
+}
+
+function getCompanyResearchCache_() {
+  var raw = PropertiesService.getScriptProperties().getProperty('COMPANY_RESEARCH');
+  if (!raw) return {};
+  try { return JSON.parse(raw); } catch (e) { return {}; }
+}
+
+function saveCompanyResearchCache_(cache) {
+  PropertiesService.getScriptProperties().setProperty('COMPANY_RESEARCH', JSON.stringify(cache));
+}
+
+var CACHE_TTL_DAYS = 90;
+
+function getCachedCompanyResearch_(companyKey) {
+  var cache = getCompanyResearchCache_();
+  var entry = cache[companyKey];
+  if (!entry) return null;
+  if (entry.cachedAt) {
+    var cachedAt = new Date(entry.cachedAt);
+    var ageMs = new Date().getTime() - cachedAt.getTime();
+    if (ageMs > CACHE_TTL_DAYS * 24 * 60 * 60 * 1000) {
+      console.log('Cached research for ' + companyKey + ' expired (>' + CACHE_TTL_DAYS + ' days), ignoring');
+      return null;
+    }
+  }
+  return entry;
+}
+
+function cacheCompanyResearch_(companyKey, researchDict) {
+  var cache = getCompanyResearchCache_();
+  cache[companyKey] = {
+    cachedAt: new Date().toISOString(),
+    data: researchDict
+  };
+  saveCompanyResearchCache_(cache);
+}
+
+function clearCompanyResearchCache_(companyKey) {
+  var cache = getCompanyResearchCache_();
+  var removed;
+  if (companyKey) {
+    removed = cache[companyKey] ? 1 : 0;
+    delete cache[companyKey];
+  } else {
+    removed = Object.keys(cache).length;
+    cache = {};
+  }
+  saveCompanyResearchCache_(cache);
+  return removed;
+}
+
+function deletePipeline_(companyKey) {
+  var pipelines = getPipelines_();
+  if (!pipelines[companyKey]) return false;
+  delete pipelines[companyKey];
+  savePipelines_(pipelines);
+  var cache = getCompanyResearchCache_();
+  if (cache[companyKey]) {
+    delete cache[companyKey];
+    saveCompanyResearchCache_(cache);
+  }
+  return true;
 }
 
 function getPipelineSummaries_() {

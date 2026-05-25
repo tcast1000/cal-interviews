@@ -14,7 +14,7 @@ SHEET_NAME = "Interview Tracker"
 PIPELINE_SHEET_NAME = "Pipeline Overview"
 
 HEADERS = [
-    "Date/Time", "Company", "Role", "Interviewer(s)", "Type",
+    "Date/Time", "Company", "Role", "Round", "Interviewer(s)", "Type",
     "Key Talking Points", "Comp Range", "Status", "Prep Doc", "Calendar Link", "Notes",
 ]
 
@@ -23,7 +23,7 @@ PIPELINE_HEADERS = [
     "Days Silent", "Next Action", "Last Activity", "Notes",
 ]
 
-COLUMN_WIDTHS = [180, 150, 200, 200, 120, 350, 140, 100, 100, 100, 200]
+COLUMN_WIDTHS = [180, 150, 200, 70, 200, 120, 350, 140, 100, 100, 100, 200]
 PIPELINE_COLUMN_WIDTHS = [150, 200, 100, 140, 70, 90, 140, 140, 250]
 
 
@@ -94,7 +94,7 @@ def _create_tracker_sheet(sheets_service, drive_service, config: Config) -> str:
 
     sheets_service.spreadsheets().values().update(
         spreadsheetId=sheet_id,
-        range=f"{SHEET_NAME}!A1:K1",
+        range=f"{SHEET_NAME}!A1:L1",
         valueInputOption="RAW",
         body={"values": [HEADERS]},
     ).execute()
@@ -210,6 +210,7 @@ def write_to_sheet(
         event.start_time.strftime("%Y-%m-%d %H:%M"),
         prep.company_name,
         prep.role_title,
+        prep.round_number,
         interviewers,
         prep.interview_type,
         truncate(talking_points, 500),
@@ -222,7 +223,7 @@ def write_to_sheet(
 
     result = sheets_service.spreadsheets().values().append(
         spreadsheetId=sheet_id,
-        range=f"{SHEET_NAME}!A:K",
+        range=f"{SHEET_NAME}!A:L",
         valueInputOption="USER_ENTERED",
         insertDataOption="INSERT_ROWS",
         body={"values": [row]},
@@ -269,8 +270,8 @@ def _apply_row_formatting(
                     "sheetId": internal_sheet_id,
                     "startRowIndex": row_num - 1,
                     "endRowIndex": row_num,
-                    "startColumnIndex": 7,
-                    "endColumnIndex": 8,
+                    "startColumnIndex": 8,
+                    "endColumnIndex": 9,
                 },
                 "cell": {
                     "userEnteredFormat": {

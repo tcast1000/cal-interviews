@@ -20,9 +20,34 @@ STAGE_ORDER = [
 ]
 
 
+COMPANY_SUFFIXES = [
+    " inc.", " inc", " corp.", " corp", " corporation", " company",
+    " labs", " lab", " ltd.", " ltd", " llc.", " llc", " gmbh",
+    " holdings", " group", " technologies", " technology",
+    ".ai", ".io", ".com", ".co", ".net", ".org",
+]
+
+
+def _strip_company_suffix(name: str) -> str:
+    s = (name or "").lower().strip().rstrip(",.;")
+    changed = True
+    while changed:
+        changed = False
+        for suf in COMPANY_SUFFIXES:
+            if s.endswith(suf):
+                s = s[: -len(suf)].strip().rstrip(",.;")
+                changed = True
+                break
+    return s
+
+
 def _normalize_company_key(name: str) -> str:
-    key = re.sub(r"[^a-z0-9]", "", name.lower())
-    return key
+    stripped = _strip_company_suffix(name)
+    return re.sub(r"[^a-z0-9]", "", stripped)
+
+
+def normalize_company_key(name: str) -> str:
+    return _normalize_company_key(name or "")
 
 
 def register_event(

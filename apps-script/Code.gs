@@ -4,6 +4,10 @@ function onOpen() {
     .addItem('Run Manual Check', 'runManualCheck')
     .addItem('Refresh All Upcoming', 'refreshAllUpcoming')
     .addItem('View Pipeline', 'viewPipeline')
+    .addItem('Log Debrief', 'logDebrief')
+    .addSeparator()
+    .addItem('Clear Research Cache', 'clearResearchCacheMenu')
+    .addItem('Reset Company Pipeline', 'resetCompanyPipelineMenu')
     .addSeparator()
     .addItem('Setup API Keys', 'setupApiKeys')
     .addItem('Install Calendar Trigger', 'installCalendarTrigger')
@@ -112,7 +116,7 @@ function processEvent_(event) {
   console.log('========================================');
 
   // Step 1: Gmail enrichment
-  console.log('[1/6] Enriching from Gmail...');
+  console.log('[1/7] Enriching from Gmail...');
   try {
     event = enrichFromGmail(event);
   } catch (e) {
@@ -121,33 +125,60 @@ function processEvent_(event) {
   console.log('  Company: ' + (event.companyName || '(unknown)'));
   console.log('  Role: ' + (event.roleTitle || '(unknown)'));
 
+  // Determine round number and load cached company research if round 2+
+  var companyKeyGuess = resolveCompanyKey_(event.companyName || '');
+  var roundNumber = companyKeyGuess ? getRoundNumber_(companyKeyGuess, event.eventId) : 1;
+  var cached = (companyKeyGuess && roundNumber > 1) ? getCachedCompanyResearch_(companyKeyGuess) : null;
+  if (roundNumber > 1) {
+    console.log('  Detected round ' + roundNumber + ' (cached company research: ' + (cached ? 'yes' : 'no') + ')');
+  }
+
   // Step 2: Web research
-  console.log('[2/6] Researching...');
+  console.log('[2/7] Researching...');
   var research;
   try {
-    research = researchInterview(event);
+    research = researchInterview(event, cached);
   } catch (e) {
     console.warn('Research failed: ' + e);
     research = {
       companyInfo: [], productsAndServices: [], competitors: [],
       companyNews: [], roleInfo: [], interviewerInfo: {},
-      glassdoorInfo: [], compensationInfo: []
+      glassdoorInfo: [], compensationInfo: [],
+      valuesInfo: [], socialLinks: {},
+      jobDescriptionUrl: '', jobDescriptionSource: '',
+      fromCache: false
     };
   }
 
-  // Step 3: Claude synthesis
-  console.log('[3/6] Synthesizing prep materials...');
+  // Step 3: Summarize prior debriefs if round 2+
+  var roundContext = { roundNumber: roundNumber, summary: [], appendix: [] };
+  if (roundNumber > 1 && companyKeyGuess) {
+    var priorStages = getPriorStages_(companyKeyGuess, event.eventId);
+    if (priorStages.length > 0) {
+      console.log('[3/7] Summarizing ' + priorStages.length + ' prior round(s)...');
+      try {
+        var summarized = summarizePriorDebriefs_(priorStages);
+        roundContext.summary = summarized.summary;
+        roundContext.appendix = summarized.appendix;
+      } catch (e) {
+        console.warn('Prior-debrief summarization failed: ' + e);
+      }
+    }
+  }
+
+  // Step 4: Claude synthesis
+  console.log('[4/7] Synthesizing prep materials (round ' + roundNumber + ')...');
   var prep;
   try {
-    prep = synthesizePrep(event, research);
+    prep = synthesizePrep(event, research, roundContext);
   } catch (e) {
     console.error('Synthesis failed: ' + e);
     logError_(event.title, 'Synthesis failed: ' + e);
     return;
   }
 
-  // Step 4: Create Google Doc
-  console.log('[4/6] Creating Google Doc...');
+  // Step 5: Create Google Doc
+  console.log('[5/7] Creating Google Doc...');
   var docUrl = '';
   try {
     docUrl = createPrepDoc(prep);
@@ -160,8 +191,8 @@ function processEvent_(event) {
   var apiCost = getRunCost_();
   console.log('  API cost for this event: $' + apiCost.toFixed(4));
 
-  // Step 5: Update tracker sheet
-  console.log('[5/6] Updating tracker sheet...');
+  // Step 6: Update tracker sheet
+  console.log('[6/7] Updating tracker sheet...');
   var rowNum = 0;
   try {
     rowNum = writeToSheet(event, prep, docUrl, apiCost);
@@ -174,10 +205,18 @@ function processEvent_(event) {
     markProcessed_(event.eventId, docUrl, rowNum);
   }
 
-  // Step 6: Register pipeline & sync overview
-  console.log('[6/6] Updating pipeline...');
+  // Step 7: Register pipeline, cache research, sync overview
+  console.log('[7/7] Updating pipeline...');
   try {
-    registerPipelineEvent_(event, prep, docUrl);
+    var companyKey = registerPipelineEvent_(event, prep, docUrl);
+    if (!research.fromCache) {
+      try {
+        cacheCompanyResearch_(companyKey, researchToCacheDict_(research));
+        console.log('  Company research cached for next round');
+      } catch (e) {
+        console.warn('Could not cache company research: ' + e);
+      }
+    }
     var summaries = getPipelineSummaries_();
     if (summaries.length > 0) {
       syncPipelineSheet_(summaries);
@@ -372,6 +411,138 @@ function viewPipeline() {
   }
 
   ui.alert('Interview Pipeline (' + summaries.length + ' active)', lines.join('\n'), ui.ButtonSet.OK);
+}
+
+function logDebrief() {
+  var ui = SpreadsheetApp.getUi();
+  var summaries = getPipelineSummaries_();
+  if (summaries.length === 0) {
+    ui.alert('No Pipelines', 'No active pipelines found. Process an interview first.', ui.ButtonSet.OK);
+    return;
+  }
+
+  var lines = [];
+  for (var i = 0; i < summaries.length; i++) {
+    lines.push((i + 1) + '. ' + summaries[i].companyName + ' — ' + (summaries[i].roleTitle || 'Role TBD') +
+      ' (' + summaries[i].stageCount + ' round' + (summaries[i].stageCount === 1 ? '' : 's') + ')');
+  }
+
+  var pick = ui.prompt(
+    'Log Debrief — Pick a Company',
+    'Active pipelines:\n\n' + lines.join('\n') + '\n\nEnter the number of the company to log a debrief for:',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (pick.getSelectedButton() !== ui.Button.OK) return;
+  var idx = parseInt(pick.getResponseText().trim(), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= summaries.length) {
+    ui.alert('Invalid selection.');
+    return;
+  }
+
+  var companyKey = summaries[idx].companyKey;
+  var pipeline = getPipelines_()[companyKey];
+  if (!pipeline) {
+    ui.alert('Pipeline not found.');
+    return;
+  }
+
+  var stages = pipeline.stages || [];
+  var stageLines = [];
+  for (var s = 0; s < stages.length; s++) {
+    var dateLabel = (stages[s].eventDate || '').substring(0, 10);
+    var debriefedFlag = stages[s].debrief ? ' [debriefed]' : '';
+    stageLines.push((s + 1) + '. ' + stages[s].stageType + ' on ' + dateLabel + debriefedFlag);
+  }
+
+  var stagePick = ui.prompt(
+    'Pick a Round',
+    'Rounds for ' + pipeline.companyName + ':\n\n' + stageLines.join('\n') + '\n\nEnter the round number:',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (stagePick.getSelectedButton() !== ui.Button.OK) return;
+  var stageIdx = parseInt(stagePick.getResponseText().trim(), 10) - 1;
+  if (isNaN(stageIdx) || stageIdx < 0 || stageIdx >= stages.length) {
+    ui.alert('Invalid selection.');
+    return;
+  }
+
+  var notesPick = ui.prompt(
+    'Debrief Notes',
+    'Paste your debrief notes for ' + pipeline.companyName + ' — ' + stages[stageIdx].stageType + '.\n\n' +
+    'Tip: if you use Granola or any other notes app, copy the meeting summary here. ' +
+    'These notes will be summarized and surfaced in your prep doc for the next round.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (notesPick.getSelectedButton() !== ui.Button.OK) return;
+  var notes = notesPick.getResponseText().trim();
+  if (!notes) {
+    ui.alert('Empty notes — nothing saved.');
+    return;
+  }
+
+  var pipelines = getPipelines_();
+  pipelines[companyKey].stages[stageIdx].debrief = notes;
+  pipelines[companyKey].lastActivity = new Date().toISOString();
+  savePipelines_(pipelines);
+
+  ui.alert('Saved', 'Debrief saved for ' + pipeline.companyName + ' — ' + stages[stageIdx].stageType + '.', ui.ButtonSet.OK);
+}
+
+function clearResearchCacheMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt(
+    'Clear Research Cache',
+    'Enter a company name to clear cache for that company only, or leave blank to clear ALL cached research.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  var companyName = result.getResponseText().trim();
+  var removed;
+  if (companyName) {
+    var key = resolveCompanyKey_(companyName);
+    removed = clearCompanyResearchCache_(key);
+    ui.alert('Cleared ' + removed + ' cache entr' + (removed === 1 ? 'y' : 'ies') + ' for "' + companyName + '" (key: ' + key + ').');
+  } else {
+    removed = clearCompanyResearchCache_(null);
+    ui.alert('Cleared ' + removed + ' cached company research entr' + (removed === 1 ? 'y' : 'ies') + '.');
+  }
+}
+
+function resetCompanyPipelineMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt(
+    'Reset Company Pipeline',
+    'Enter the company name whose pipeline (and cached research) you want to DELETE.\n\nThis is irreversible.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  var companyName = result.getResponseText().trim();
+  if (!companyName) {
+    ui.alert('No company name provided.');
+    return;
+  }
+  var key = resolveCompanyKey_(companyName);
+  if (!key) {
+    ui.alert('Could not resolve a key from "' + companyName + '".');
+    return;
+  }
+  var confirm = ui.alert(
+    'Confirm Reset',
+    'Delete pipeline and cache for "' + companyName + '" (key: ' + key + ')?',
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm !== ui.Button.YES) return;
+  if (deletePipeline_(key)) {
+    ui.alert('Pipeline for "' + companyName + '" deleted.');
+    try {
+      var summaries = getPipelineSummaries_();
+      syncPipelineSheet_(summaries);
+    } catch (e) {
+      console.warn('Could not sync pipeline sheet after reset: ' + e);
+    }
+  } else {
+    ui.alert('No pipeline found for "' + companyName + '" (key: ' + key + ').');
+  }
 }
 
 function logError_(eventTitle, errorMsg) {

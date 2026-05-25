@@ -17,7 +17,7 @@ from calendar_monitor import get_interview_events
 from config import Config, load_config
 from docs_writer import create_prep_doc
 from gmail_scanner import enrich_from_gmail
-from llm_synthesizer import synthesize_prep
+from llm_synthesizer import summarize_prior_debriefs, synthesize_prep
 from models import InterviewEvent
 from pipeline_tracker import print_pipeline_status, register_event
 from post_interview import generate_thank_you_draft, process_follow_ups
@@ -43,7 +43,7 @@ def process_event(
     print(f"  Type: {event.interview_type}")
     print(f"{'='*60}")
 
-    print("\n[1/6] Enriching from Gmail...")
+    print("\n[1/7] Enriching from Gmail...")
     try:
         event = enrich_from_gmail(services.gmail, event, anthropic_client, config)
     except Exception as e:
@@ -54,31 +54,55 @@ def process_event(
     if event.interviewers:
         print(f"  Interviewers: {', '.join(i.name for i in event.interviewers)}")
 
-    print("\n[2/6] Researching...")
+    company_key_guess = state.resolve_company_key(event.company_name or "")
+    round_number = state.get_round_number(company_key_guess, event.event_id) if company_key_guess else 1
+    cached = state.get_cached_company_research(company_key_guess) if (company_key_guess and round_number > 1) else None
+    if round_number > 1:
+        print(f"  Detected round {round_number} (cached company research: {'yes' if cached else 'no'})")
+
+    print("\n[2/7] Researching...")
     try:
-        research = research_interview(event, config)
+        research = research_interview(event, config, cached_company_research=cached.get("data") if cached else None)
     except Exception as e:
         logger.error("Research failed: %s", e)
         from models import ResearchResults
         research = ResearchResults()
 
+    prior_summary: list[str] = []
+    prior_appendix: list[dict] = []
+    if round_number > 1 and company_key_guess:
+        prior_stages = state.get_prior_stages(company_key_guess, event.event_id)
+        if prior_stages:
+            print(f"\n[3/7] Summarizing {len(prior_stages)} prior round(s)...")
+            try:
+                prior_summary, prior_appendix = summarize_prior_debriefs(prior_stages, anthropic_client, config)
+            except Exception as e:
+                logger.warning("Prior-debrief summarization failed: %s", e)
+
     if dry_run:
         print("\n[DRY RUN] Would create Google Doc and add Sheet row.")
         print(f"  Company: {event.company_name}")
         print(f"  Role: {event.role_title}")
-        print(f"  Research results: {sum(len(getattr(research, f)) for f in ['company_info', 'products_and_services', 'competitors', 'company_news', 'role_info', 'glassdoor_info', 'compensation_info'])} items")
+        print(f"  Round: {round_number}")
+        print(f"  Social links found: {len(research.social_links)}")
+        print(f"  JD link: {research.job_description_url or '(none)'} ({research.job_description_source or 'none'})")
         return
 
-    print("\n[3/6] Synthesizing prep materials with Claude...")
+    print(f"\n[4/7] Synthesizing prep materials with Claude (round {round_number})...")
     try:
-        prep = synthesize_prep(event, research, anthropic_client, config)
+        prep = synthesize_prep(
+            event, research, anthropic_client, config,
+            round_number=round_number,
+            previous_rounds_summary=prior_summary,
+            previous_rounds_appendix=prior_appendix,
+        )
     except Exception as e:
         logger.error("Synthesis failed: %s", e)
         print(f"  ERROR: {e}")
         _save_fallback(event, research)
         return
 
-    print("\n[4/6] Creating Google Doc...")
+    print("\n[5/7] Creating Google Doc...")
     try:
         doc_url = create_prep_doc(services.docs, services.drive, prep, config)
         print(f"  Doc: {doc_url}")
@@ -87,7 +111,7 @@ def process_event(
         doc_url = ""
         _save_fallback(event, research)
 
-    print("\n[5/6] Updating tracker sheet...")
+    print("\n[6/7] Updating tracker sheet...")
     try:
         row_num = write_to_sheet(
             services.sheets, services.drive, config, state, event, prep, doc_url
@@ -97,7 +121,7 @@ def process_event(
         logger.error("Sheet update failed: %s", e)
         row_num = 0
 
-    print("\n[6/6] Updating pipeline...")
+    print("\n[7/7] Updating pipeline...")
     if doc_url:
         state.mark_processed(
             event.event_id,
@@ -107,6 +131,13 @@ def process_event(
         )
         company_key = register_event(state, event, prep, doc_url)
 
+        if not research.from_cache:
+            try:
+                state.cache_company_research(company_key, research.to_cache_dict())
+                print("  Company research cached for next round")
+            except Exception as e:
+                logger.warning("Could not cache company research: %s", e)
+
         try:
             sheet_id = config.google_sheet_id or state.get_sheet_id()
             if sheet_id:
@@ -115,7 +146,7 @@ def process_event(
         except Exception as e:
             logger.warning("Pipeline sheet sync failed: %s", e)
 
-        print(f"  Pipeline registered: {prep.company_name}")
+        print(f"  Pipeline registered: {prep.company_name} (round {round_number})")
 
     print(f"\nDone! Prep doc: {doc_url}")
 
@@ -387,6 +418,37 @@ def run_update_status(config: Config, args: argparse.Namespace) -> None:
             logger.warning("Could not sync pipeline sheet: %s", e)
 
 
+def run_clear_cache(config: Config, args: argparse.Namespace) -> None:
+    state = StateManager()
+    if args.company:
+        company_key = state.resolve_company_key(args.company)
+        removed = state.clear_company_research_cache(company_key)
+        print(f"Cleared {removed} cache entr{'y' if removed == 1 else 'ies'} for '{args.company}' (key: {company_key}).")
+    else:
+        removed = state.clear_company_research_cache()
+        print(f"Cleared {removed} cached company research entr{'y' if removed == 1 else 'ies'}.")
+
+
+def run_reset_pipeline(config: Config, args: argparse.Namespace) -> None:
+    state = StateManager()
+    company_key = state.resolve_company_key(args.company)
+    if not company_key:
+        print(f"Could not resolve a company key from '{args.company}'.")
+        return
+    if state.delete_pipeline(company_key):
+        print(f"Pipeline for '{args.company}' (key: {company_key}) deleted, including cached research.")
+        sheet_id = config.google_sheet_id or state.get_sheet_id()
+        if sheet_id:
+            try:
+                services = GoogleServices(config)
+                sync_pipeline_sheet(services.sheets, state, sheet_id)
+                print("Pipeline sheet synced.")
+            except Exception as e:
+                logger.warning("Could not sync pipeline sheet: %s", e)
+    else:
+        print(f"No pipeline found for '{args.company}' (looked up key: {company_key}).")
+
+
 def run_follow_ups(config: Config, args: argparse.Namespace) -> None:
     services = GoogleServices(config)
     anthropic_client = anthropic.Anthropic(api_key=config.anthropic_api_key)
@@ -443,6 +505,8 @@ Examples:
     parser.add_argument("--set-status", help="New status: Active, Offer, Rejected, Withdrawn, Ghosted")
     parser.add_argument("--note", help="Add a note when updating status")
     parser.add_argument("--follow-ups", action="store_true", help="Generate follow-up email drafts")
+    parser.add_argument("--clear-cache", action="store_true", help="Clear cached company research (use --company X to scope to one)")
+    parser.add_argument("--reset-pipeline", action="store_true", help="Delete a pipeline entry (requires --company X)")
 
     args = parser.parse_args()
 
@@ -464,6 +528,16 @@ Examples:
 
     print("Interview Prep Automation")
     print("=" * 40)
+
+    if args.clear_cache:
+        run_clear_cache(config, args)
+        return
+    if args.reset_pipeline:
+        if not args.company:
+            print("Usage: --reset-pipeline --company <name>")
+            sys.exit(1)
+        run_reset_pipeline(config, args)
+        return
 
     if args.pipeline:
         run_pipeline(config, args)

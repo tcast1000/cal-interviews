@@ -1,10 +1,10 @@
 var SHEET_NAME = 'Interview Tracker';
 var PIPELINE_SHEET_NAME = 'Pipeline Overview';
-var HEADERS = ['Date/Time', 'Company', 'Role', 'Interviewer(s)', 'Type',
+var HEADERS = ['Date/Time', 'Company', 'Role', 'Round', 'Interviewer(s)', 'Type',
   'Key Talking Points', 'Comp Range', 'Status', 'Prep Doc', 'Calendar Link', 'Notes', 'API Cost'];
 var PIPELINE_HEADERS = ['Company', 'Role', 'Status', 'Current Stage', 'Rounds',
   'Days Silent', 'Next Action', 'Last Activity', 'Notes'];
-var COLUMN_WIDTHS = [180, 150, 200, 200, 120, 350, 140, 100, 100, 100, 200, 90];
+var COLUMN_WIDTHS = [180, 150, 200, 70, 200, 120, 350, 140, 100, 100, 100, 200, 90];
 var PIPELINE_COLUMN_WIDTHS = [150, 200, 100, 140, 70, 90, 140, 140, 250];
 
 function writeToSheet(event, prep, docUrl, apiCost) {
@@ -32,6 +32,7 @@ function writeToSheet(event, prep, docUrl, apiCost) {
     formatDateTime_(event.startTime),
     prep.company_name,
     prep.role_title,
+    prep.round_number || 1,
     interviewers,
     prep.interview_type,
     truncate_(talkingPoints, 500),
@@ -49,7 +50,7 @@ function writeToSheet(event, prep, docUrl, apiCost) {
   applyRowFormatting_(sheet, lastRow, status);
   updateCostSummary_(sheet);
 
-  console.log('Added row ' + lastRow + ' to tracker sheet (API cost: $' + costStr + ')');
+  console.log('Added row ' + lastRow + ' to tracker sheet (round ' + (prep.round_number || 1) + ', API cost: $' + costStr + ')');
   return lastRow;
 }
 
@@ -74,7 +75,7 @@ function getOrCreateTrackerSheet_() {
     sheet.setColumnWidth(i + 1, COLUMN_WIDTHS[i]);
   }
 
-  sheet.getRange('L:L').setNumberFormat('$#,##0.0000');
+  sheet.getRange('M:M').setNumberFormat('$#,##0.0000');
 
   // Create Pipeline Overview tab
   var pipelineSheet = ss.getSheetByName(PIPELINE_SHEET_NAME);
@@ -114,7 +115,7 @@ function applyRowFormatting_(sheet, rowNum, status) {
   };
 
   var bg = colorMap[status] || '#FFFFFF';
-  sheet.getRange(rowNum, 8).setBackground(bg);
+  sheet.getRange(rowNum, 9).setBackground(bg);
 }
 
 function syncPipelineSheet_(pipelines) {
@@ -206,7 +207,7 @@ function updateCostSummary_(sheet) {
   }
 
   summarySheet.getRange('B1').setFormula(
-    '=SUM(\'' + SHEET_NAME + '\'!L2:L)'
+    '=SUM(\'' + SHEET_NAME + '\'!M2:M)'
   ).setNumberFormat('$#,##0.0000');
 
   summarySheet.getRange('B2').setValue(new Date()).setNumberFormat('yyyy-MM-dd hh:mm:ss a');
