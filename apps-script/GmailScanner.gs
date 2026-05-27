@@ -113,18 +113,33 @@ function getMessageSnippet_(thread) {
   try {
     var messages = thread.getMessages();
     if (messages.length === 0) return null;
-    var msg = messages[0];
 
-    var body = msg.getPlainBody();
-    if (!body) {
-      body = cleanHtml_(msg.getBody());
+    // Pick first + last 2 messages (deduped). First captures original context;
+    // recent messages capture reschedules, added interviewers, and prep updates.
+    var picked = [messages[0]];
+    if (messages.length >= 2) picked.push(messages[messages.length - 1]);
+    if (messages.length >= 3) picked.push(messages[messages.length - 2]);
+    picked.sort(function (a, b) { return a.getDate().getTime() - b.getDate().getTime(); });
+
+    var seenIds = {};
+    var parts = [];
+    for (var i = 0; i < picked.length; i++) {
+      var m = picked[i];
+      var id = m.getId();
+      if (seenIds[id]) continue;
+      seenIds[id] = true;
+
+      var body = m.getPlainBody();
+      if (!body) body = cleanHtml_(m.getBody());
+      if (!body) continue;
+
+      var dateStr = Utilities.formatDate(m.getDate(), Session.getScriptTimeZone(), 'yyyy-MM-dd HH:mm');
+      parts.push('[' + dateStr + '] From: ' + m.getFrom() + '\nSubject: ' + m.getSubject() + '\n\n' + body);
     }
-    if (!body) return null;
+    if (parts.length === 0) return null;
 
-    var from = msg.getFrom();
-    var subject = msg.getSubject();
-    var snippet = 'From: ' + from + '\nSubject: ' + subject + '\n\n' + body;
-    return snippet.substring(0, MAX_SNIPPET_CHARS);
+    var combined = parts.join('\n\n--- next message in thread ---\n\n');
+    return combined.substring(0, MAX_SNIPPET_CHARS);
   } catch (e) {
     console.warn('Failed to read thread: ' + e);
     return null;

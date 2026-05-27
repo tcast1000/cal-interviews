@@ -1,5 +1,5 @@
 var FAST_MODEL = 'claude-haiku-4-5-20251001';
-var SNIPPET_MAX_CHARS = 300;
+var SNIPPET_MAX_CHARS = 1200;
 
 function truncateSnippet_(text) {
   if (!text) return '';
@@ -7,7 +7,7 @@ function truncateSnippet_(text) {
   return text.substring(0, SNIPPET_MAX_CHARS - 1).replace(/\s+$/, '') + '…';
 }
 
-var SYSTEM_PROMPT = 'You are an expert interview preparation coach. Your job is to help candidates excel in their upcoming interviews by providing thorough, actionable preparation materials.\n\nYou will receive details about an upcoming interview (company, role, interviewers) along with web research results. Synthesize everything into a comprehensive prep document.\n\nYour output must be a JSON object with exactly these fields:\n{\n    "company_name": "string",\n    "role_title": "string",\n    "interview_date": "string (formatted nicely, e.g. \'Thursday, May 15, 2026\')",\n    "interview_time": "string (e.g. \'2:00 PM EST\')",\n    "interview_location": "string (physical address or \'Virtual\')",\n    "video_link": "string or empty",\n    "interviewer_names": ["list of interviewer names"],\n    "company_overview": "2 paragraphs about the company: what they do, their mission, size, stage, culture, and anything notable. Write in a way that helps the candidate sound knowledgeable.",\n    "values": ["4-6 short bullet items capturing the company\'s core values, principles, or cultural pillars, extracted from the COMPANY RESEARCH below. Each item is the value itself plus a brief gloss. If the research doesn\'t surface explicit values, infer from mission/culture content and label them as inferred."],\n    "products_and_services": ["4-5 bullet points listing the company\'s main products, services, or platforms (extracted from COMPANY RESEARCH). Each is a brief description (1 sentence max)."],\n    "competitors": ["3-4 direct competitors or closest alternatives (extracted from COMPANY RESEARCH). For each, include the company name and a short phrase on how they compete."],\n    "recent_news": ["3-4 recent news items or developments, each 1 sentence"],\n    "role_analysis": "2 paragraphs analyzing the role: key responsibilities, required skills, and how to frame experience to match. If the candidate provided a resume, reference specific experience that maps to the role.",\n    "interviewer_backgrounds": {"interviewer name": "1 paragraph about their background, role, interests, and potential topics they might focus on"},\n    "potential_questions": ["6 likely interview questions based on the role, company, and interview type. Tailored to the interview type (technical / behavioral / etc)."],\n    "questions_to_ask": ["6 thoughtful questions the candidate should ask. Specific to this company/role — not generic."],\n    "key_talking_points": ["4 specific talking points connecting the candidate\'s potential strengths to this role and company. Concrete and memorable."],\n    "sheet_talking_points": ["3 punchy one-liners (max 12 words each) for a quick-glance cheat sheet. Concrete, actionable reminders — not generic platitudes."],\n    "compensation": {\n        "base_range": "estimated base salary range (e.g. \'$150K–$180K\'). Use data from levels.fyi, Glassdoor, or similar sources if available. If no data, give a reasonable market estimate and note it.",\n        "total_comp_range": "estimated total compensation range including equity/bonus. Empty string if insufficient data.",\n        "equity_notes": "brief note on equity structure if known. Empty string if unknown.",\n        "source": "where the comp data came from (e.g. \'levels.fyi\', \'Glassdoor\', \'market estimate\')",\n        "notes": "any caveats — e.g. \'limited data points\', \'comp varies significantly by level\'"\n    },\n    "sources": ["list of URLs used in research"],\n    "interview_type": "string (e.g. \'Technical\', \'Behavioral\', \'Phone Screen\')"\n}\n\nGuidelines:\n- Be specific, not generic. Every talking point and question should reference something about THIS company or role.\n- products_and_services, competitors, and values are all extracted from the same COMPANY RESEARCH block — read it carefully and pull each category out separately.\n- Tailor potential_questions to the interview type (technical = coding/design; behavioral = STAR-format; etc.).\n- sheet_talking_points are NOT a copy of key_talking_points. Ultra-short sticky-note bullets only.\n- compensation: prefer levels.fyi, then Glassdoor, then market estimate. Don\'t fabricate numbers — if data is thin, say so and widen the range.\n- Return ONLY the JSON object, no other text.';
+var SYSTEM_PROMPT = 'You are an expert interview preparation coach. Your job is to help candidates excel in their upcoming interviews by providing thorough, actionable preparation materials.\n\nYou will receive details about an upcoming interview (company, role, interviewers) along with web research results. Synthesize everything into a comprehensive prep document.\n\nYour output must be a JSON object with exactly these fields:\n{\n    "company_name": "string",\n    "role_title": "string",\n    "interview_date": "string (formatted nicely, e.g. \'Thursday, May 15, 2026\')",\n    "interview_time": "string (e.g. \'2:00 PM EST\')",\n    "interview_location": "string (physical address or \'Virtual\')",\n    "video_link": "string or empty",\n    "interviewer_names": ["list of interviewer names"],\n    "company_overview": "2-3 paragraphs about the company: what they do, their mission, size, stage, culture, and anything notable. Write in a way that helps the candidate sound knowledgeable.",\n    "values": ["4-6 short bullet items capturing the company\'s core values, principles, or cultural pillars. Pull from the VALUES & CULTURE RESEARCH and COMPANY RESEARCH sections. Each item is the value itself plus a brief gloss (1 sentence). If the research doesn\'t surface explicit values, infer from mission/culture content and label them as inferred."],\n    "products_and_services": ["4-6 bullet points listing the company\'s main products, services, or platforms. Each should be a brief description (1 sentence max) of what it is and who it serves. If it\'s a startup, describe the main product in depth. If a large company, focus on the division/team most relevant to the role."],\n    "competitors": ["3-5 direct competitors or closest alternatives in the market. Name real companies, not vague categories. For each, include the company name and a short phrase on how they compete (e.g. \'Datadog — competing in observability/monitoring\')."],\n    "recent_news": ["3-5 recent news items or developments, each 1-2 sentences. Pull from RECENT NEWS research."],\n    "role_analysis": "2-3 paragraphs analyzing the role: key responsibilities, required skills, and how to frame experience to match. If the candidate provided a resume, reference specific experience that maps to the role.",\n    "interviewer_backgrounds": {"interviewer name": "1-2 paragraphs about their background, role, interests, and potential topics they might focus on"},\n    "potential_questions": ["10 likely interview questions based on the role, company, and interview type. Include a mix of behavioral, technical, and role-specific questions. Tailor to the interview type — technical interviews get coding/design questions, behavioral get STAR-format questions, etc."],\n    "questions_to_ask": ["8-10 thoughtful questions the candidate should ask. These should demonstrate research and genuine interest. Avoid generic questions like \'what\'s the culture like\' — anchor to something specific about this company, product, or role."],\n    "key_talking_points": ["5 specific talking points connecting the candidate\'s potential strengths to this role and company. Make these concrete and memorable — the kind of things that make an interviewer think \'this person really prepared.\'"],\n    "sheet_talking_points": ["3-4 punchy one-liners (max 12 words each) for a quick-glance cheat sheet. Each must be a concrete, actionable reminder — not a generic platitude. Format: what to mention or emphasize, not a full sentence. Good examples: \'Led 3x revenue growth at Series B stage\', \'Mention migrating 2M users to microservices\', \'Ask about their Q3 platform rewrite\'. Bad examples: \'Show enthusiasm\', \'Demonstrate leadership\', \'Review prep doc\'. NEVER output a placeholder like \'Review prep doc\' — if you genuinely cannot generate a specific point, generate one anchored to a known company detail (a product, a recent news item, a value) and the candidate\'s background."],\n    "compensation": {\n        "base_range": "estimated base salary range (e.g. \'$150K–$180K\'). Use data from levels.fyi, Glassdoor, or similar sources if available. If no data, give a reasonable market estimate and note it.",\n        "total_comp_range": "estimated total compensation range including equity/bonus (e.g. \'$200K–$280K\'). Leave empty string if insufficient data.",\n        "equity_notes": "brief note on equity structure if known (e.g. \'RSUs, 4-year vest with 1-year cliff\'). Leave empty string if unknown.",\n        "source": "where the comp data came from (e.g. \'levels.fyi\', \'Glassdoor\', \'market estimate\')",\n        "notes": "any caveats — e.g. \'data is for SF Bay Area, adjust for location\', \'limited data points\', \'comp varies significantly by level\'"\n    },\n    "sources": ["list of URLs used in research"],\n    "interview_type": "string (e.g. \'Technical\', \'Behavioral\', \'Phone Screen\')"\n}\n\nGuidelines:\n- Be specific, not generic. Every talking point and question should reference something about THIS company or role.\n- Read each research section carefully — COMPANY RESEARCH, PRODUCTS & SERVICES RESEARCH, COMPETITOR RESEARCH, VALUES & CULTURE RESEARCH, RECENT NEWS, ROLE RESEARCH — and pull each output field from the section that matches it.\n- If a research section is empty for a category, fall back to your training knowledge about the company rather than skipping the section. Do not return empty arrays for products, competitors, values, or news unless the company is truly unknown.\n- Tailor potential_questions to the interview type (technical = coding/system design; behavioral = STAR-format; phone screen = high-level fit and interest).\n- Questions to ask should show the candidate has done their homework — reference a product, news item, or strategic move.\n- sheet_talking_points are NOT a copy of key_talking_points. They are ultra-short sticky-note reminders for a spreadsheet glance. No fluff, no generic advice. NEVER use \'Review prep doc\' as a placeholder.\n- compensation: use actual data from the COMPENSATION RESEARCH section when available. Prefer levels.fyi, then Glassdoor, then market estimates. Always note the source and any caveats. Do not fabricate specific numbers — if data is thin, say so and give a wide range.\n- Return ONLY the JSON object, no other text.';
 
 var ROUND_ADDENDUM = '\n\nMULTI-ROUND CONTEXT: This is round {roundNumber} for this candidate at this company. Prior rounds and the candidate\'s debrief notes from them are provided below. Use this context to:\n- Skip ground already covered. Don\'t repeat questions or talking points the candidate has already used.\n- Build on what was discussed. Reference unfinished threads, follow-ups the interviewer requested, or topics the candidate flagged in their notes.\n- Recalibrate for the new interviewer. The person interviewing this round is different from prior rounds. Tailor questions, talking points, and interviewer background analysis specifically to THIS round\'s interviewer and interview type.\n- Keep all standard sections (company overview, products, competitors, etc.) — the candidate may want to re-review them, but make them tighter and only emphasize what\'s most relevant to this round.';
 
@@ -29,7 +29,7 @@ function synthesizePrep(event, research, roundContext) {
   }
 
   var userContent = buildResearchContext_(event, research, roundContext);
-  var responseText = callClaudeApi_(systemPrompt, userContent, 2500, { cacheSystem: true });
+  var responseText = callClaudeApi_(systemPrompt, userContent, 5000, { cacheSystem: true });
 
   var data;
   try {
@@ -55,6 +55,8 @@ function synthesizePrep(event, research, roundContext) {
     data.job_description_source = research.jobDescriptionSource;
   }
   if (!data.values) data.values = [];
+
+  data.is_update = !!event._isUpdate;
 
   console.log('Synthesis complete: ' + (data.company_name || 'Unknown') + ' — ' + (data.role_title || 'Unknown') + ' (round ' + roundContext.roundNumber + ')');
   return data;
@@ -182,6 +184,11 @@ function buildResearchContext_(event, research, roundContext) {
     sections.push('  ' + event.preparationInstructions);
   }
 
+  if (roundContext.customContext) {
+    sections.push('\nCANDIDATE-PROVIDED CONTEXT (treat as authoritative — this is insider knowledge the candidate has gathered):');
+    sections.push('  ' + roundContext.customContext);
+  }
+
   if (roundContext.summary && roundContext.summary.length > 0) {
     sections.push('\nPRIOR ROUND SUMMARY (this is round ' + roundContext.roundNumber + '):');
     for (var b = 0; b < roundContext.summary.length; b++) {
@@ -198,16 +205,39 @@ function buildResearchContext_(event, research, roundContext) {
     }
   }
 
-  var combined = (research.companyInfo || []).concat(research.productsAndServices || []).concat(research.competitors || []).concat(research.valuesInfo || []);
-  if (combined.length > 0) {
-    sections.push('\nCOMPANY RESEARCH (use this to extract overview, products, competitors, and values):');
-    var seenUrls = {};
-    for (var ci = 0; ci < combined.length; ci++) {
-      var cr = combined[ci];
-      if (cr.url && seenUrls[cr.url]) continue;
-      if (cr.url) seenUrls[cr.url] = true;
-      sections.push('  [' + cr.title + '](' + cr.url + ')');
-      sections.push('  ' + truncateSnippet_(cr.snippet));
+  if (research.companyInfo && research.companyInfo.length > 0) {
+    sections.push('\nCOMPANY RESEARCH (for company_overview):');
+    for (var i = 0; i < research.companyInfo.length; i++) {
+      var r = research.companyInfo[i];
+      sections.push('  [' + r.title + '](' + r.url + ')');
+      sections.push('  ' + truncateSnippet_(r.snippet));
+    }
+  }
+
+  if (research.productsAndServices && research.productsAndServices.length > 0) {
+    sections.push('\nPRODUCTS & SERVICES RESEARCH (for products_and_services):');
+    for (var i = 0; i < research.productsAndServices.length; i++) {
+      var r = research.productsAndServices[i];
+      sections.push('  [' + r.title + '](' + r.url + ')');
+      sections.push('  ' + truncateSnippet_(r.snippet));
+    }
+  }
+
+  if (research.competitors && research.competitors.length > 0) {
+    sections.push('\nCOMPETITOR RESEARCH (for competitors):');
+    for (var i = 0; i < research.competitors.length; i++) {
+      var r = research.competitors[i];
+      sections.push('  [' + r.title + '](' + r.url + ')');
+      sections.push('  ' + truncateSnippet_(r.snippet));
+    }
+  }
+
+  if (research.valuesInfo && research.valuesInfo.length > 0) {
+    sections.push('\nVALUES & CULTURE RESEARCH (for values):');
+    for (var i = 0; i < research.valuesInfo.length; i++) {
+      var r = research.valuesInfo[i];
+      sections.push('  [' + r.title + '](' + r.url + ')');
+      sections.push('  ' + truncateSnippet_(r.snippet));
     }
   }
 
@@ -255,7 +285,7 @@ function buildResearchContext_(event, research, roundContext) {
   }
 
   if (research.glassdoorInfo && research.glassdoorInfo.length > 0) {
-    sections.push('\nINTERVIEW TIPS & GLASSDOOR:');
+    sections.push('\nINTERVIEW PROCESS & CANDIDATE EXPERIENCES:');
     for (var i = 0; i < research.glassdoorInfo.length; i++) {
       var r = research.glassdoorInfo[i];
       sections.push('  [' + r.title + '](' + r.url + ')');
@@ -347,7 +377,7 @@ function callClaudeApi_(systemPrompt, userMessage, maxTokens, options) {
     }
   }
 
-  var options = {
+  var fetchParams = {
     method: 'post',
     contentType: 'application/json',
     headers: {
@@ -358,13 +388,21 @@ function callClaudeApi_(systemPrompt, userMessage, maxTokens, options) {
     muteHttpExceptions: true
   };
 
-  var response = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', options);
-  var code = response.getResponseCode();
-  var body = JSON.parse(response.getContentText());
-
-  if (code !== 200) {
-    throw new Error('Claude API error (' + code + '): ' + (body.error ? body.error.message : JSON.stringify(body)));
+  var response, code, body;
+  var delays = [1000, 3000, 8000]; // 3 attempts with backoff
+  for (var attempt = 0; attempt <= delays.length; attempt++) {
+    response = UrlFetchApp.fetch('https://api.anthropic.com/v1/messages', fetchParams);
+    code = response.getResponseCode();
+    if (code === 200) break;
+    var retriable = (code === 429 || code === 529 || (code >= 500 && code < 600));
+    if (!retriable || attempt === delays.length) {
+      try { body = JSON.parse(response.getContentText()); } catch (e2) { body = {}; }
+      throw new Error('Claude API error (' + code + '): ' + (body.error ? body.error.message : response.getContentText().substring(0, 300)));
+    }
+    console.warn('Claude API ' + code + ', retrying in ' + (delays[attempt] / 1000) + 's (attempt ' + (attempt + 1) + '/' + delays.length + ')');
+    Utilities.sleep(delays[attempt]);
   }
+  body = JSON.parse(response.getContentText());
 
   if (!body.content || body.content.length === 0) {
     throw new Error('Claude API returned empty content');

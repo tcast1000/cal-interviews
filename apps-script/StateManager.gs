@@ -1,17 +1,22 @@
+var _processedCache = null;
+
 function getProcessedEvents_() {
+  if (_processedCache !== null) return _processedCache;
   var props = PropertiesService.getScriptProperties();
   var raw = props.getProperty('PROCESSED_EVENTS');
-  if (!raw) return {};
+  if (!raw) { _processedCache = {}; return _processedCache; }
   try {
-    return JSON.parse(raw);
+    _processedCache = JSON.parse(raw);
   } catch (e) {
     console.warn('Corrupt PROCESSED_EVENTS, resetting: ' + e);
-    return {};
+    _processedCache = {};
   }
+  return _processedCache;
 }
 
 function saveProcessedEvents_(events) {
   PropertiesService.getScriptProperties().setProperty('PROCESSED_EVENTS', JSON.stringify(events));
+  _processedCache = events;
 }
 
 function isProcessed_(eventId) {
@@ -37,6 +42,7 @@ function clearProcessedEvent_(eventId) {
 
 function clearAllProcessed_() {
   PropertiesService.getScriptProperties().deleteProperty('PROCESSED_EVENTS');
+  _processedCache = {};
 }
 
 function pruneOldEntries_() {
@@ -72,14 +78,19 @@ function savePendingQueue_(queue) {
 
 // --- Pipeline State ---
 
+var _pipelinesCache = null;
+
 function getPipelines_() {
+  if (_pipelinesCache !== null) return _pipelinesCache;
   var raw = PropertiesService.getScriptProperties().getProperty('PIPELINES');
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch (e) { return {}; }
+  if (!raw) { _pipelinesCache = {}; return _pipelinesCache; }
+  try { _pipelinesCache = JSON.parse(raw); } catch (e) { _pipelinesCache = {}; }
+  return _pipelinesCache;
 }
 
 function savePipelines_(pipelines) {
   PropertiesService.getScriptProperties().setProperty('PIPELINES', JSON.stringify(pipelines));
+  _pipelinesCache = pipelines;
 }
 
 var COMPANY_SUFFIXES = [
@@ -225,14 +236,19 @@ function getPriorStages_(companyKey, excludeEventId) {
   return out;
 }
 
+var _researchCache = null;
+
 function getCompanyResearchCache_() {
+  if (_researchCache !== null) return _researchCache;
   var raw = PropertiesService.getScriptProperties().getProperty('COMPANY_RESEARCH');
-  if (!raw) return {};
-  try { return JSON.parse(raw); } catch (e) { return {}; }
+  if (!raw) { _researchCache = {}; return _researchCache; }
+  try { _researchCache = JSON.parse(raw); } catch (e) { _researchCache = {}; }
+  return _researchCache;
 }
 
 function saveCompanyResearchCache_(cache) {
   PropertiesService.getScriptProperties().setProperty('COMPANY_RESEARCH', JSON.stringify(cache));
+  _researchCache = cache;
 }
 
 var CACHE_TTL_DAYS = 90;

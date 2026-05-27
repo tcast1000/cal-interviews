@@ -168,15 +168,32 @@ cal-interviews/
     └── Utils.gs             # Shared helpers
 ```
 
-## Privacy
+## Privacy & Security
 
+### What stays local
 All credentials and personal data stay in files that are gitignored:
-- `.env` — API keys and config
+- `.env` — API keys and config (Python CLI)
 - `credentials.json` — Google OAuth client config
 - `token.json` — Google OAuth refresh token
 - `state.json` — local processing state
 
 The repository contains zero hardcoded secrets or personal information.
+
+### Apps Script secrets
+The Apps Script version stores secrets in Google Script Properties (`ANTHROPIC_API_KEY`, `TAVILY_API_KEY`, optional `RESUME_TEXT`). Script Properties are **plaintext** and readable by anyone who has edit access to the script container — so don't share editor access to the spreadsheet/script project with people who shouldn't see your keys or resume. Viewer-only access doesn't expose Script Properties.
+
+### What gets sent to third parties
+- **Anthropic (Claude API)** — receives calendar event titles/descriptions, parsed email content from interview-related Gmail threads (subject, sender, first 2KB of body), web research snippets from Tavily, and your resume text if configured. Used to extract interview details and synthesize the prep doc. Anthropic's API has a no-training-by-default policy, but the data still transits their servers and is retained per their data-handling terms.
+- **Tavily (optional)** — receives company/role/interviewer search queries. No personal data unless your name is in the query. Skip the Tavily key entirely if you'd rather Claude rely on training-data knowledge for research.
+- **Google APIs** — Calendar, Gmail, Sheets, Docs, Drive. All within your own Google account; nothing leaves Google's perimeter.
+
+### What stays on your side
+- Pipeline state, processed-event IDs, debrief notes, cached research — all stored in Google Script Properties (Apps Script) or `state.json` (Python). Not shared with Anthropic or Tavily.
+
+### Reducing exposure
+- Skip the `TAVILY_API_KEY` to disable web search.
+- Skip the `RESUME_TEXT` / `RESUME_PATH` to omit your resume from prompts (you'll get less-personalized output).
+- Use a per-project Anthropic key with a low spend cap so a leaked key has bounded blast radius.
 
 ## License
 

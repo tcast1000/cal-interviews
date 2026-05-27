@@ -37,13 +37,28 @@ function getInterviewEvents(lookAheadDays) {
 
 function getNewInterviewEvents() {
   var events = getInterviewEvents();
+  var processed = getProcessedEvents_();
+  var debounceMs = 60 * 60 * 1000; // 1 hour
   var newEvents = [];
   for (var i = 0; i < events.length; i++) {
-    if (!isProcessed_(events[i].eventId)) {
-      newEvents.push(events[i]);
-    } else {
-      console.log('  Skipping already-processed: ' + events[i].title);
+    var ev = events[i];
+    var entry = processed[ev.eventId];
+    if (!entry) {
+      newEvents.push(ev);
+      continue;
     }
+    if (ev.updated && entry.processedAt) {
+      var lastUpdated = new Date(ev.updated).getTime();
+      var processedAt = new Date(entry.processedAt).getTime();
+      if (lastUpdated > processedAt + debounceMs) {
+        ev._isUpdate = true;
+        newEvents.push(ev);
+        console.log('  Reprocessing updated event: ' + ev.title +
+          ' (last updated ' + ev.updated + ', last processed ' + entry.processedAt + ')');
+        continue;
+      }
+    }
+    console.log('  Skipping already-processed: ' + ev.title);
   }
   return newEvents;
 }
@@ -216,7 +231,8 @@ function extractCompanyAndRole_(title, description) {
 function detectInterviewType_(title, description) {
   var text = (title + ' ' + (description || '')).toLowerCase();
   for (var keyword in INTERVIEW_TYPE_KEYWORDS) {
-    if (text.indexOf(keyword) !== -1) {
+    var pattern = new RegExp('\\b' + keyword.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b');
+    if (pattern.test(text)) {
       return INTERVIEW_TYPE_KEYWORDS[keyword];
     }
   }

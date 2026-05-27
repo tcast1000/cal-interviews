@@ -3,14 +3,18 @@ function onOpen() {
   ui.createMenu('Interview Prep')
     .addItem('Run Manual Check', 'runManualCheck')
     .addItem('Refresh All Upcoming', 'refreshAllUpcoming')
+    .addItem('Run Sample Event (test)', 'runSampleEvent')
     .addItem('View Pipeline', 'viewPipeline')
     .addItem('Log Debrief', 'logDebrief')
+    .addItem('Update Pipeline Status', 'updatePipelineStatusMenu')
     .addSeparator()
+    .addItem('Set Resume from Drive', 'setResumeFromDriveMenu')
     .addItem('Clear Research Cache', 'clearResearchCacheMenu')
     .addItem('Reset Company Pipeline', 'resetCompanyPipelineMenu')
     .addSeparator()
     .addItem('Setup API Keys', 'setupApiKeys')
     .addItem('Install Calendar Trigger', 'installCalendarTrigger')
+    .addItem('Install Daily Reminder Trigger', 'installDailyReminderTrigger')
     .addItem('Check Setup', 'checkSetup')
     .addToUi();
 }
@@ -110,7 +114,7 @@ function processEvent_(event) {
 
   console.log('');
   console.log('========================================');
-  console.log('Processing: ' + event.title);
+  console.log('Processing' + (event._isUpdate ? ' (updated)' : '') + ': ' + event.title);
   console.log('  Date: ' + formatDate_(event.startTime) + ' at ' + formatTime_(event.startTime));
   console.log('  Type: ' + event.interviewType);
   console.log('========================================');
@@ -166,8 +170,19 @@ function processEvent_(event) {
     }
   }
 
-  // Step 4: Claude synthesis
+  // Step 4: Claude synthesis (with optional per-company custom context)
   console.log('[4/7] Synthesizing prep materials (round ' + roundNumber + ')...');
+  if (companyKeyGuess) {
+    try {
+      var customContext = getCustomContextForCompany_(companyKeyGuess);
+      if (customContext) {
+        roundContext.customContext = customContext;
+        console.log('  Loaded ' + customContext.length + ' chars of custom context for ' + companyKeyGuess);
+      }
+    } catch (e) {
+      console.warn('Could not read custom context: ' + e);
+    }
+  }
   var prep;
   try {
     prep = synthesizePrep(event, research, roundContext);
@@ -255,23 +270,39 @@ function runManualCheck() {
 
   if (result !== ui.Button.YES) return;
 
-  for (var i = 0; i < events.length; i++) {
-    processEvent_(events[i]);
+  var toProcess = events.slice(0, MAX_EVENTS_PER_RUN);
+  var remaining = events.slice(MAX_EVENTS_PER_RUN);
+
+  for (var i = 0; i < toProcess.length; i++) {
+    processEvent_(toProcess[i]);
   }
 
-  ui.alert('Complete', events.length + ' interview(s) processed. Check the "' +
-    SHEET_NAME + '" sheet and your Google Drive for prep docs.', ui.ButtonSet.OK);
+  var msg = toProcess.length + ' interview(s) processed. Check the "' +
+    SHEET_NAME + '" sheet and your Google Drive for prep docs.';
+
+  if (remaining.length > 0) {
+    var queue = remaining.map(function (ev) { return ev.eventId; });
+    savePendingQueue_(queue);
+    ScriptApp.newTrigger('continueProcessing_')
+      .timeBased()
+      .after(30 * 1000)
+      .create();
+    msg += '\n\n' + remaining.length + ' more queued — they will process automatically in ~30 seconds (Apps Script execution-time limits prevent doing them all in one batch).';
+  }
+
+  ui.alert('Complete', msg, ui.ButtonSet.OK);
 }
 
 function refreshAllUpcoming() {
   var ui = SpreadsheetApp.getUi();
   var result = ui.alert('Refresh All',
-    'This will re-process all upcoming interviews, creating new docs even if they were already processed.\n\nContinue?',
+    'This will re-process all upcoming interviews, creating new docs even if they were already processed. Cached company research will also be cleared so every doc gets fresh research.\n\nContinue?',
     ui.ButtonSet.YES_NO);
 
   if (result !== ui.Button.YES) return;
 
   clearAllProcessed_();
+  clearCompanyResearchCache_(null);
   runManualCheck();
 }
 
@@ -558,4 +589,235 @@ function logError_(eventTitle, errorMsg) {
   } catch (e) {
     console.error('Could not log error to sheet: ' + e);
   }
+}
+
+// --- Resume from Drive ---
+
+function setResumeFromDriveMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var result = ui.prompt(
+    'Set Resume from Drive',
+    'Paste a Google Doc file ID or full URL.\n\n' +
+    'Examples:\n' +
+    '  1aBcDe...XyZ   (file ID)\n' +
+    '  https://docs.google.com/document/d/1aBcDe...XyZ/edit\n\n' +
+    'Only Google Docs are supported. Convert PDFs by right-clicking the file in Drive → Open with → Google Docs.',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (result.getSelectedButton() !== ui.Button.OK) return;
+  var input = result.getResponseText().trim();
+  if (!input) { ui.alert('Nothing entered — resume not changed.'); return; }
+
+  var fileId = input;
+  var urlMatch = input.match(/\/document\/d\/([a-zA-Z0-9_-]+)/);
+  if (urlMatch) fileId = urlMatch[1];
+
+  try {
+    var doc = DocumentApp.openById(fileId);
+    var text = doc.getBody().getText().trim();
+    if (!text) { ui.alert('That Doc is empty.'); return; }
+
+    PropertiesService.getScriptProperties().setProperty('RESUME_TEXT', text);
+    invalidateConfigCache_();
+    ui.alert('Resume loaded', text.length + ' characters saved. Future prep docs will use this resume for personalization.', ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert('Could not read Doc', 'Error: ' + e + '\n\nMake sure the file ID is correct and the script has permission to read it. Only Google Docs are supported (not PDFs).', ui.ButtonSet.OK);
+  }
+}
+
+// --- Pipeline Status ---
+
+var PIPELINE_STATUSES = ['Active', 'Offer', 'Rejected', 'Withdrawn', 'On Hold'];
+
+function updatePipelineStatusMenu() {
+  var ui = SpreadsheetApp.getUi();
+  var pipelines = getPipelines_();
+  var keys = Object.keys(pipelines);
+  if (keys.length === 0) {
+    ui.alert('No pipelines found. Process an interview first.');
+    return;
+  }
+
+  var lines = [];
+  for (var i = 0; i < keys.length; i++) {
+    var p = pipelines[keys[i]];
+    lines.push((i + 1) + '. ' + p.companyName + ' — ' + (p.roleTitle || 'Role TBD') + ' [' + p.status + ']');
+  }
+
+  var pick = ui.prompt(
+    'Update Pipeline Status — Pick a Company',
+    lines.join('\n') + '\n\nEnter the number:',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (pick.getSelectedButton() !== ui.Button.OK) return;
+  var idx = parseInt(pick.getResponseText().trim(), 10) - 1;
+  if (isNaN(idx) || idx < 0 || idx >= keys.length) {
+    ui.alert('Invalid selection.');
+    return;
+  }
+
+  var statusList = [];
+  for (var s = 0; s < PIPELINE_STATUSES.length; s++) {
+    statusList.push((s + 1) + '. ' + PIPELINE_STATUSES[s]);
+  }
+  var statusPick = ui.prompt(
+    'Pick New Status for ' + pipelines[keys[idx]].companyName,
+    statusList.join('\n') + '\n\nEnter the number:',
+    ui.ButtonSet.OK_CANCEL
+  );
+  if (statusPick.getSelectedButton() !== ui.Button.OK) return;
+  var sIdx = parseInt(statusPick.getResponseText().trim(), 10) - 1;
+  if (isNaN(sIdx) || sIdx < 0 || sIdx >= PIPELINE_STATUSES.length) {
+    ui.alert('Invalid selection.');
+    return;
+  }
+
+  pipelines[keys[idx]].status = PIPELINE_STATUSES[sIdx];
+  pipelines[keys[idx]].lastActivity = new Date().toISOString();
+  savePipelines_(pipelines);
+
+  try {
+    var summaries = getPipelineSummaries_();
+    syncPipelineSheet_(summaries);
+  } catch (e) {
+    console.warn('Pipeline sheet sync after status update failed: ' + e);
+  }
+
+  ui.alert('Updated', pipelines[keys[idx]].companyName + ' → ' + PIPELINE_STATUSES[sIdx], ui.ButtonSet.OK);
+}
+
+// --- Sample / test event runner ---
+
+function runSampleEvent() {
+  var ui = SpreadsheetApp.getUi();
+  var confirm = ui.alert(
+    'Run Sample Event',
+    'Runs the full pipeline on a fake interview event to smoke-test your setup. ' +
+    'Creates a real prep doc and tracker row (you can delete them after). Does NOT register a pipeline.\n\nContinue?',
+    ui.ButtonSet.YES_NO
+  );
+  if (confirm !== ui.Button.YES) return;
+
+  var validation = validateConfig();
+  if (!validation.valid) {
+    ui.alert('Setup Required', validation.errors.join('\n'), ui.ButtonSet.OK);
+    return;
+  }
+
+  var startTime = new Date(Date.now() + 2 * 24 * 60 * 60 * 1000); // 2 days out
+  var sampleEvent = {
+    eventId: 'SAMPLE_' + Date.now(),
+    title: '[SAMPLE] Phone Screen — Anthropic — Sr. Product Marketing Manager',
+    startTime: startTime,
+    endTime: new Date(startTime.getTime() + 45 * 60 * 1000),
+    description: 'Sample event generated by the Run Sample Event menu. This is a smoke test.',
+    location: 'Virtual',
+    videoLink: 'https://meet.google.com/sample-link',
+    calendarLink: null,
+    attendees: [
+      { email: 'recruiter@anthropic.com', name: 'Sample Recruiter', isOrganizer: true }
+    ],
+    companyName: 'Anthropic',
+    roleTitle: 'Sr. Product Marketing Manager',
+    interviewType: 'Phone Screen',
+    interviewers: [
+      { name: 'Sample Recruiter', email: 'recruiter@anthropic.com', title: 'Recruiter', linkedinUrl: null }
+    ],
+    preparationInstructions: null,
+    updated: new Date().toISOString(),
+    _isSample: true
+  };
+
+  resetRunUsage_();
+  console.log('Running sample event pipeline...');
+  try {
+    var research = researchInterview(sampleEvent, null);
+    var prep = synthesizePrep(sampleEvent, research, { roundNumber: 1, summary: [], appendix: [] });
+    var docUrl = createPrepDoc(prep);
+    var apiCost = getRunCost_();
+    writeToSheet(sampleEvent, prep, docUrl, apiCost);
+    ui.alert('Sample complete', 'Sample prep doc:\n' + docUrl + '\n\nAPI cost: $' + apiCost.toFixed(4) +
+      '\n\nDelete the doc and tracker row when you\'re done reviewing.', ui.ButtonSet.OK);
+  } catch (e) {
+    ui.alert('Sample failed', String(e), ui.ButtonSet.OK);
+  }
+}
+
+// --- Daily reminder trigger ---
+
+function installDailyReminderTrigger() {
+  var ui = SpreadsheetApp.getUi();
+  var triggers = ScriptApp.getProjectTriggers();
+  var removed = 0;
+  for (var i = 0; i < triggers.length; i++) {
+    if (triggers[i].getHandlerFunction() === 'sendDailyDigest_') {
+      ScriptApp.deleteTrigger(triggers[i]);
+      removed++;
+    }
+  }
+
+  ScriptApp.newTrigger('sendDailyDigest_')
+    .timeBased()
+    .atHour(8)
+    .everyDays(1)
+    .create();
+
+  var msg = 'Daily digest trigger installed for 8 AM (script timezone).';
+  if (removed > 0) msg += '\n(' + removed + ' old trigger(s) removed.)';
+  msg += '\n\nEach morning you\'ll get an email summarizing interviews in the next 48 hours.';
+  ui.alert('Trigger Installed', msg, ui.ButtonSet.OK);
+}
+
+function sendDailyDigest_() {
+  var config = getConfig();
+  if (!config.userEmail) {
+    console.warn('Daily digest skipped — no USER_EMAIL configured');
+    return;
+  }
+
+  var now = new Date();
+  var horizon = new Date(now.getTime() + 48 * 60 * 60 * 1000);
+  var pipelines = getPipelines_();
+  var processed = getProcessedEvents_();
+
+  var upcoming = [];
+  for (var key in pipelines) {
+    var p = pipelines[key];
+    if (p.status === 'Rejected' || p.status === 'Withdrawn') continue;
+    var stages = p.stages || [];
+    for (var s = 0; s < stages.length; s++) {
+      var stage = stages[s];
+      var when = new Date(stage.eventDate);
+      if (when >= now && when <= horizon) {
+        upcoming.push({
+          companyName: p.companyName,
+          roleTitle: p.roleTitle || '',
+          stageType: stage.stageType,
+          when: when,
+          docUrl: stage.docUrl || (processed[stage.eventId] ? processed[stage.eventId].docUrl : '')
+        });
+      }
+    }
+  }
+
+  if (upcoming.length === 0) {
+    console.log('Daily digest: no interviews in the next 48h, skipping email');
+    return;
+  }
+
+  upcoming.sort(function (a, b) { return a.when.getTime() - b.when.getTime(); });
+
+  var lines = upcoming.map(function (u) {
+    var whenStr = Utilities.formatDate(u.when, Session.getScriptTimeZone(), 'EEE MMM d, h:mm a');
+    var line = whenStr + ' — ' + u.companyName + ' — ' + u.stageType;
+    if (u.roleTitle) line += ' (' + u.roleTitle + ')';
+    if (u.docUrl) line += '\n   Prep doc: ' + u.docUrl;
+    return line;
+  });
+
+  var subject = 'Interview prep digest — ' + upcoming.length + ' interview' + (upcoming.length === 1 ? '' : 's') + ' in the next 48h';
+  var bodyText = 'Upcoming interviews:\n\n' + lines.join('\n\n') + '\n\n— Interview Prep Automation';
+
+  MailApp.sendEmail({ to: config.userEmail, subject: subject, body: bodyText });
+  console.log('Daily digest sent to ' + config.userEmail + ' with ' + upcoming.length + ' interview(s)');
 }

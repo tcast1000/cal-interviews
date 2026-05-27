@@ -1,12 +1,40 @@
+# Secrets and credentials
 .env
+.env.local
+.env.*.local
 credentials.json
 token.json
+secrets.json
+*.key
+*.pem
+*.p12
+*.pfx
+
+# Personal data
 state.json
 resume.txt
 resume.md
 resume.pdf
+resume.docx
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+.pytest_cache/
+
+# Editor / IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Claude Code session state
+.claude/
+
+# OS noise
+.DS_Store
+Thumbs.db
+
+# Local scratch
 fallback/

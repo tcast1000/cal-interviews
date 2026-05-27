@@ -3,9 +3,11 @@ var PIPELINE_SHEET_NAME = 'Pipeline Overview';
 var HEADERS = ['Date/Time', 'Company', 'Role', 'Round', 'Interviewer(s)', 'Type',
   'Key Talking Points', 'Comp Range', 'Status', 'Prep Doc', 'Calendar Link', 'Notes', 'API Cost'];
 var PIPELINE_HEADERS = ['Company', 'Role', 'Status', 'Current Stage', 'Rounds',
-  'Days Silent', 'Next Action', 'Last Activity', 'Notes'];
+  'Days Silent', 'Next Action', 'Last Activity', 'Latest Note', 'Custom Context'];
 var COLUMN_WIDTHS = [180, 150, 200, 70, 200, 120, 350, 140, 100, 100, 100, 200, 90];
-var PIPELINE_COLUMN_WIDTHS = [150, 200, 100, 140, 70, 90, 140, 140, 250];
+var PIPELINE_COLUMN_WIDTHS = [150, 200, 100, 140, 70, 90, 140, 140, 200, 280];
+
+var CUSTOM_CONTEXT_COL = 10; // 1-indexed column in Pipeline Overview
 
 function writeToSheet(event, prep, docUrl, apiCost) {
   var sheet = getOrCreateTrackerSheet_();
@@ -135,7 +137,26 @@ function syncPipelineSheet_(pipelines) {
     for (var j = 0; j < PIPELINE_COLUMN_WIDTHS.length; j++) {
       sheet.setColumnWidth(j + 1, PIPELINE_COLUMN_WIDTHS[j]);
     }
+  } else {
+    // Migrate existing sheets that may be missing newer headers (e.g. Custom Context column).
+    var headerRow = sheet.getRange(1, 1, 1, PIPELINE_HEADERS.length).getValues()[0];
+    var needsHeaderRewrite = false;
+    for (var hh = 0; hh < PIPELINE_HEADERS.length; hh++) {
+      if (headerRow[hh] !== PIPELINE_HEADERS[hh]) { needsHeaderRewrite = true; break; }
+    }
+    if (needsHeaderRewrite) {
+      var rewriteRange = sheet.getRange(1, 1, 1, PIPELINE_HEADERS.length);
+      rewriteRange.setValues([PIPELINE_HEADERS]);
+      rewriteRange.setFontWeight('bold').setFontColor('#FFFFFF').setBackground('#336AB5').setHorizontalAlignment('center');
+      for (var jj = 0; jj < PIPELINE_COLUMN_WIDTHS.length; jj++) {
+        sheet.setColumnWidth(jj + 1, PIPELINE_COLUMN_WIDTHS[jj]);
+      }
+      console.log('Pipeline Overview headers migrated to ' + PIPELINE_HEADERS.length + ' columns');
+    }
   }
+
+  // Preserve user-entered Custom Context before clearing rows.
+  var existingContext = readCustomContextFromSheet_(sheet);
 
   var rows = [];
   for (var i = 0; i < pipelines.length; i++) {
@@ -149,7 +170,8 @@ function syncPipelineSheet_(pipelines) {
       p.daysSilent,
       p.nextAction,
       p.lastActivity,
-      truncate_(p.latestNote || '', 200)
+      truncate_(p.latestNote || '', 200),
+      existingContext[p.companyKey] || ''
     ]);
   }
 
@@ -159,10 +181,39 @@ function syncPipelineSheet_(pipelines) {
 
   if (rows.length > 0) {
     sheet.getRange(2, 1, rows.length, PIPELINE_HEADERS.length).setValues(rows);
+    // Tint the Custom Context column so it's visibly editable
+    sheet.getRange(2, CUSTOM_CONTEXT_COL, rows.length, 1).setBackground('#FFF9E6');
   }
 
   applyPipelineFormatting_(sheet, pipelines);
   console.log('Pipeline overview synced: ' + rows.length + ' rows');
+}
+
+// Read existing Custom Context entries into a {companyKey: text} map by matching
+// on company name (normalized) since the sheet doesn't store the raw key.
+function readCustomContextFromSheet_(sheet) {
+  var map = {};
+  var lastRow = sheet.getLastRow();
+  if (lastRow < 2) return map;
+  var data = sheet.getRange(2, 1, lastRow - 1, PIPELINE_HEADERS.length).getValues();
+  for (var i = 0; i < data.length; i++) {
+    var companyName = data[i][0];
+    var customContext = data[i][CUSTOM_CONTEXT_COL - 1];
+    if (companyName && customContext) {
+      map[normalizeCompanyKey_(String(companyName))] = String(customContext);
+    }
+  }
+  return map;
+}
+
+// Public-ish helper: read the Custom Context for a specific company key.
+function getCustomContextForCompany_(companyKey) {
+  if (!companyKey) return '';
+  var ss = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = ss.getSheetByName(PIPELINE_SHEET_NAME);
+  if (!sheet) return '';
+  var map = readCustomContextFromSheet_(sheet);
+  return map[companyKey] || '';
 }
 
 function applyPipelineFormatting_(sheet, pipelines) {
@@ -186,6 +237,7 @@ function applyPipelineFormatting_(sheet, pipelines) {
 function updateCostSummary_(sheet) {
   var ss = SpreadsheetApp.getActiveSpreadsheet();
   var summarySheet = ss.getSheetByName('Summary');
+  var freshlyCreated = false;
 
   if (!summarySheet) {
     summarySheet = ss.insertSheet('Summary');
@@ -194,25 +246,25 @@ function updateCostSummary_(sheet) {
     summarySheet.getRange('A3').setValue('Interviews Processed').setFontWeight('bold');
     summarySheet.setColumnWidth(1, 180);
     summarySheet.setColumnWidth(2, 220);
+    summarySheet.getRange('B1')
+      .setFormula('=SUM(\'' + SHEET_NAME + '\'!M2:M)')
+      .setNumberFormat('$#,##0.0000');
+    summarySheet.getRange('B3').setFormula('=COUNTA(\'' + SHEET_NAME + '\'!A2:A)');
+    freshlyCreated = true;
   }
 
-  var trackerSheet = ss.getSheetByName(SHEET_NAME);
-  var lastRow = trackerSheet.getLastRow();
-
-  if (lastRow < 2) {
-    summarySheet.getRange('B1').setValue(0).setNumberFormat('$#,##0.0000');
-    summarySheet.getRange('B2').setValue(new Date());
-    summarySheet.getRange('B3').setValue(0);
-    return;
-  }
-
-  summarySheet.getRange('B1').setFormula(
-    '=SUM(\'' + SHEET_NAME + '\'!M2:M)'
-  ).setNumberFormat('$#,##0.0000');
-
+  // B1 and B3 are formulas set once at sheet creation — they recompute on their own.
+  // Only B2 (last-updated timestamp) needs to be re-written on each call.
   summarySheet.getRange('B2').setValue(new Date()).setNumberFormat('yyyy-MM-dd hh:mm:ss a');
 
-  summarySheet.getRange('B3').setFormula(
-    '=COUNTA(\'' + SHEET_NAME + '\'!A2:A)'
-  );
+  if (!freshlyCreated) {
+    var b1 = summarySheet.getRange('B1');
+    if (!b1.getFormula()) {
+      b1.setFormula('=SUM(\'' + SHEET_NAME + '\'!M2:M)').setNumberFormat('$#,##0.0000');
+    }
+    var b3 = summarySheet.getRange('B3');
+    if (!b3.getFormula()) {
+      b3.setFormula('=COUNTA(\'' + SHEET_NAME + '\'!A2:A)');
+    }
+  }
 }

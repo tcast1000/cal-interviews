@@ -4,6 +4,10 @@ function createPrepDoc(prep) {
   var title = roundNum > 1
     ? prep.company_name + ' — Round ' + roundNum + ' (' + prep.interview_type + ') — ' + prep.interview_date
     : prep.company_name + ' - ' + prep.role_title + ' Interview Prep - ' + prep.interview_date;
+  if (prep.is_update) {
+    var stamp = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'M/d');
+    title += ' (updated ' + stamp + ')';
+  }
   console.log('Creating Google Doc: ' + title);
 
   var doc = DocumentApp.create(title);

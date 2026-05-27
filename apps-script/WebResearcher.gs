@@ -54,14 +54,23 @@ function researchInterview(event, cachedCompanyResearch) {
   }
 
   if (!cachedCompanyResearch && company !== 'Unknown Company') {
-    console.log('  Searching company (overview + products + competitors + values, one call)...');
-    results.companyInfo = searchTavily_('"' + company + '" overview products services competitors values culture', config.tavilyApiKey, 5);
+    console.log('  Searching company overview...');
+    results.companyInfo = searchTavily_('"' + company + '" company overview about mission', config.tavilyApiKey, 5);
+
+    console.log('  Searching products and services...');
+    results.productsAndServices = searchTavily_('"' + company + '" products services platform offerings', config.tavilyApiKey, 3);
+
+    console.log('  Searching competitors...');
+    results.competitors = searchTavily_('"' + company + '" competitors alternatives market', config.tavilyApiKey, 3);
+
+    console.log('  Searching company values and culture...');
+    results.valuesInfo = searchTavily_('"' + company + '" values culture principles', config.tavilyApiKey, 3);
 
     console.log('  Searching recent news (news topic)...');
     results.companyNews = searchTavily_('"' + company + '" recent news', config.tavilyApiKey, 3, 'news');
 
-    console.log('  Searching interview tips...');
-    results.glassdoorInfo = searchTavily_('"' + company + '" glassdoor interview experience', config.tavilyApiKey, 3);
+    console.log('  Searching interview process & candidate experiences...');
+    results.glassdoorInfo = searchTavily_('"' + company + '" interview process experience candidate questions', config.tavilyApiKey, 3);
 
     console.log('  Searching social media...');
     results.socialLinks = findSocialLinks_(company, config.tavilyApiKey);
@@ -69,7 +78,7 @@ function researchInterview(event, cachedCompanyResearch) {
 
   if (!cachedCompanyResearch && role && company !== 'Unknown Company') {
     console.log('  Searching role details...');
-    results.roleInfo = searchTavily_('"' + role + '" "' + company + '" job description responsibilities', config.tavilyApiKey, 3);
+    results.roleInfo = searchTavily_('"' + role + '" "' + company + '" job description responsibilities', config.tavilyApiKey, 5);
 
     console.log('  Searching compensation data...');
     results.compensationInfo = searchTavily_('"' + company + '" "' + role + '" salary compensation levels.fyi glassdoor', config.tavilyApiKey, 3);
@@ -96,9 +105,15 @@ function researchInterview(event, cachedCompanyResearch) {
       continue;
     }
     console.log('  Searching ' + (cachedCompanyResearch ? 'new ' : '') + 'interviewer: ' + iv.name);
-    results.interviewerInfo[iv.name] = searchTavily_(
-      '"' + iv.name + '" "' + company + '" linkedin', config.tavilyApiKey, 3
+    var profileResults = searchTavily_(
+      'site:linkedin.com/in/ "' + iv.name + '" "' + company + '"', config.tavilyApiKey, 3
     );
+    if (profileResults.length === 0) {
+      profileResults = searchTavily_(
+        '"' + iv.name + '" "' + company + '" linkedin', config.tavilyApiKey, 3
+      );
+    }
+    results.interviewerInfo[iv.name] = profileResults;
   }
 
   var total = results.companyInfo.length + results.productsAndServices.length +
@@ -116,37 +131,50 @@ function researchInterview(event, cachedCompanyResearch) {
 }
 
 function searchTavily_(query, apiKey, maxResults, topic) {
-  try {
-    var payload = {
-      api_key: apiKey,
-      query: query,
-      max_results: maxResults || 5,
-      search_depth: 'basic'
-    };
-    if (topic) {
-      payload.topic = topic;
-      if (topic === 'news') payload.days = 30;
-    }
-    var response = UrlFetchApp.fetch('https://api.tavily.com/search', {
-      method: 'post',
-      contentType: 'application/json',
-      payload: JSON.stringify(payload),
-      muteHttpExceptions: true
-    });
-
-    if (response.getResponseCode() !== 200) {
-      console.warn('Tavily search failed (' + response.getResponseCode() + ') for: ' + query);
-      return [];
-    }
-
-    var data = JSON.parse(response.getContentText());
-    return (data.results || []).map(function (r) {
-      return { title: r.title || '', snippet: r.content || '', url: r.url || '' };
-    });
-  } catch (e) {
-    console.warn('Tavily search error for "' + query + '": ' + e);
-    return [];
+  var payload = {
+    api_key: apiKey,
+    query: query,
+    max_results: maxResults || 5,
+    search_depth: 'basic'
+  };
+  if (topic) {
+    payload.topic = topic;
+    if (topic === 'news') payload.days = 30;
   }
+  var fetchParams = {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify(payload),
+    muteHttpExceptions: true
+  };
+
+  var delays = [1000, 3000];
+  for (var attempt = 0; attempt <= delays.length; attempt++) {
+    try {
+      var response = UrlFetchApp.fetch('https://api.tavily.com/search', fetchParams);
+      var code = response.getResponseCode();
+      if (code === 200) {
+        var data = JSON.parse(response.getContentText());
+        return (data.results || []).map(function (r) {
+          return { title: r.title || '', snippet: r.content || '', url: r.url || '' };
+        });
+      }
+      var retriable = (code === 429 || (code >= 500 && code < 600));
+      if (!retriable || attempt === delays.length) {
+        console.warn('Tavily search failed (' + code + ') for: ' + query);
+        return [];
+      }
+      console.warn('Tavily ' + code + ', retrying in ' + (delays[attempt] / 1000) + 's (attempt ' + (attempt + 1) + '/' + delays.length + ')');
+      Utilities.sleep(delays[attempt]);
+    } catch (e) {
+      if (attempt === delays.length) {
+        console.warn('Tavily network error for "' + query + '": ' + e);
+        return [];
+      }
+      Utilities.sleep(delays[attempt]);
+    }
+  }
+  return [];
 }
 
 function pickFirstMatchingUrl_(results, substrings) {

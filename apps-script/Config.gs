@@ -1,4 +1,8 @@
+var _configCache = null;
+
 function getConfig() {
+  if (_configCache !== null) return _configCache;
+
   var props = PropertiesService.getScriptProperties();
   var email = '';
   try { email = Session.getActiveUser().getEmail(); } catch (e) {}
@@ -12,7 +16,7 @@ function getConfig() {
   var extraKeywordsRaw = props.getProperty('EXTRA_MATCH_KEYWORDS') || '';
   var extraKeywords = extraKeywordsRaw ? extraKeywordsRaw.split(',').map(function (k) { return k.trim().toLowerCase(); }).filter(Boolean) : [];
 
-  return {
+  _configCache = {
     anthropicApiKey: props.getProperty('ANTHROPIC_API_KEY') || '',
     userName: props.getProperty('USER_NAME') || '',
     userAliases: aliases,
@@ -25,6 +29,11 @@ function getConfig() {
     extraRecruitingDomains: extraDomains,
     extraMatchKeywords: extraKeywords
   };
+  return _configCache;
+}
+
+function invalidateConfigCache_() {
+  _configCache = null;
 }
 
 function validateConfig() {
@@ -105,5 +114,6 @@ function setupApiKeys() {
     if (email) props.setProperty('USER_EMAIL', email);
   } catch (e) {}
 
+  invalidateConfigCache_();
   ui.alert('Setup complete! Use "Check Setup" to verify everything works.');
 }
